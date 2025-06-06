@@ -52,78 +52,85 @@ def run_stdio():
         sys.exit(1)
 
 # Register Tool: Execute SQL Query
-@stdio_mcp.tool("exec_query", description="""[Function Description]: Execute SQL query and return result command (executed by the client).\n
+@stdio_mcp.tool("exec_query", description="""[Function Description]: Execute SQL query and return result command with catalog federation support.\n
 [Parameter Content]:\n
-- sql (string) [Required] - SQL statement to execute\n
+- sql (string) [Required] - SQL statement to execute. MUST use three-part naming for all table references: 'catalog_name.db_name.table_name'. For internal tables use 'internal.db_name.table_name', for external tables use 'catalog_name.db_name.table_name'\n
 - db_name (string) [Optional] - Target database name, defaults to the current database\n
+- catalog_name (string) [Optional] - Reference catalog name for context, defaults to current catalog\n
 - max_rows (integer) [Optional] - Maximum number of rows to return, default 100\n
 - timeout (integer) [Optional] - Query timeout in seconds, default 30\n""")
-async def exec_query_tool(sql: str, db_name: str = None, max_rows: int = 100, timeout: int = 30) -> Dict[str, Any]:
+async def exec_query_tool(sql: str, db_name: str = None, catalog_name: str = None, max_rows: int = 100, timeout: int = 30) -> Dict[str, Any]:
     """Wrapper: Execute SQL query and return result command"""
     from doris_mcp_server.tools.mcp_doris_tools import mcp_doris_exec_query
-    return await mcp_doris_exec_query(sql=sql, db_name=db_name, max_rows=max_rows, timeout=timeout)
+    return await mcp_doris_exec_query(sql=sql, db_name=db_name, catalog_name=catalog_name, max_rows=max_rows, timeout=timeout)
 
 # Register Tool: Get Table Schema
 @stdio_mcp.tool("get_table_schema", description="""[Function Description]: Get detailed structure information of the specified table (columns, types, comments, etc.).\n
 [Parameter Content]:\n
 - table_name (string) [Required] - Name of the table to query\n
-- db_name (string) [Optional] - Target database name, defaults to the current database\n""")
-async def get_table_schema_tool(table_name: str, db_name: str = None) -> Dict[str, Any]:
+- db_name (string) [Optional] - Target database name, defaults to the current database\n
+- catalog_name (string) [Optional] - Target catalog name for federation queries, defaults to current catalog\n""")
+async def get_table_schema_tool(table_name: str, db_name: str = None, catalog_name: str = None) -> Dict[str, Any]:
     """Wrapper: Get table schema"""
     from doris_mcp_server.tools.mcp_doris_tools import mcp_doris_get_table_schema
     if not table_name: return {"content": [{"type": "text", "text": json.dumps({"success": False, "error": "Missing table_name parameter"})}]}
-    return await mcp_doris_get_table_schema(table_name=table_name, db_name=db_name)
+    return await mcp_doris_get_table_schema(table_name=table_name, db_name=db_name, catalog_name=catalog_name)
 
 # Register Tool: Get Database Table List
 @stdio_mcp.tool("get_db_table_list", description="""[Function Description]: Get a list of all table names in the specified database.\n
 [Parameter Content]:\n
-- db_name (string) [Optional] - Target database name, defaults to the current database\n""")
-async def get_db_table_list_tool(db_name: str = None) -> Dict[str, Any]:
+- db_name (string) [Optional] - Target database name, defaults to the current database\n
+- catalog_name (string) [Optional] - Target catalog name for federation queries, defaults to current catalog\n""")
+async def get_db_table_list_tool(db_name: str = None, catalog_name: str = None) -> Dict[str, Any]:
     """Wrapper: Get database table list"""
     from doris_mcp_server.tools.mcp_doris_tools import mcp_doris_get_db_table_list
-    return await mcp_doris_get_db_table_list(db_name=db_name)
+    return await mcp_doris_get_db_table_list(db_name=db_name, catalog_name=catalog_name)
 
 # Register Tool: Get Database List
 @stdio_mcp.tool("get_db_list", description="""[Function Description]: Get a list of all database names on the server.\n
 [Parameter Content]:\n
-- random_string (string) [Required] - Unique identifier for the tool call\n""")
-async def get_db_list_tool() -> Dict[str, Any]:
+- random_string (string) [Required] - Unique identifier for the tool call\n
+- catalog_name (string) [Optional] - Target catalog name for federation queries, defaults to current catalog\n""")
+async def get_db_list_tool(catalog_name: str = None) -> Dict[str, Any]:
     """Wrapper: Get database list"""
     from doris_mcp_server.tools.mcp_doris_tools import mcp_doris_get_db_list
-    return await mcp_doris_get_db_list()
+    return await mcp_doris_get_db_list(catalog_name=catalog_name)
 
 # Register Tool: Get Table Comment
 @stdio_mcp.tool("get_table_comment", description="""[Function Description]: Get the comment information for the specified table.\n
 [Parameter Content]:\n
 - table_name (string) [Required] - Name of the table to query\n
-- db_name (string) [Optional] - Target database name, defaults to the current database\n""")
-async def get_table_comment_tool(table_name: str, db_name: str = None) -> Dict[str, Any]:
+- db_name (string) [Optional] - Target database name, defaults to the current database\n
+- catalog_name (string) [Optional] - Target catalog name for federation queries, defaults to current catalog\n""")
+async def get_table_comment_tool(table_name: str, db_name: str = None, catalog_name: str = None) -> Dict[str, Any]:
     """Wrapper: Get table comment"""
     from doris_mcp_server.tools.mcp_doris_tools import mcp_doris_get_table_comment
     if not table_name: return {"content": [{"type": "text", "text": json.dumps({"success": False, "error": "Missing table_name parameter"})}]}
-    return await mcp_doris_get_table_comment(table_name=table_name, db_name=db_name)
+    return await mcp_doris_get_table_comment(table_name=table_name, db_name=db_name, catalog_name=catalog_name)
 
 # Register Tool: Get Table Column Comments
 @stdio_mcp.tool("get_table_column_comments", description="""[Function Description]: Get comment information for all columns in the specified table.\n
 [Parameter Content]:\n
 - table_name (string) [Required] - Name of the table to query\n
-- db_name (string) [Optional] - Target database name, defaults to the current database\n""")
-async def get_table_column_comments_tool(table_name: str, db_name: str = None) -> Dict[str, Any]:
+- db_name (string) [Optional] - Target database name, defaults to the current database\n
+- catalog_name (string) [Optional] - Target catalog name for federation queries, defaults to current catalog\n""")
+async def get_table_column_comments_tool(table_name: str, db_name: str = None, catalog_name: str = None) -> Dict[str, Any]:
     """Wrapper: Get table column comments"""
     from doris_mcp_server.tools.mcp_doris_tools import mcp_doris_get_table_column_comments
     if not table_name: return {"content": [{"type": "text", "text": json.dumps({"success": False, "error": "Missing table_name parameter"})}]}
-    return await mcp_doris_get_table_column_comments(table_name=table_name, db_name=db_name)
+    return await mcp_doris_get_table_column_comments(table_name=table_name, db_name=db_name, catalog_name=catalog_name)
 
 # Register Tool: Get Table Indexes
 @stdio_mcp.tool("get_table_indexes", description="""[Function Description]: Get index information for the specified table.
 [Parameter Content]:\n
 - table_name (string) [Required] - Name of the table to query\n
-- db_name (string) [Optional] - Target database name, defaults to the current database\n""")
-async def get_table_indexes_tool(table_name: str, db_name: str = None) -> Dict[str, Any]:
+- db_name (string) [Optional] - Target database name, defaults to the current database\n
+- catalog_name (string) [Optional] - Target catalog name for federation queries, defaults to current catalog\n""")
+async def get_table_indexes_tool(table_name: str, db_name: str = None, catalog_name: str = None) -> Dict[str, Any]:
     """Wrapper: Get table indexes"""
     from doris_mcp_server.tools.mcp_doris_tools import mcp_doris_get_table_indexes
     if not table_name: return {"content": [{"type": "text", "text": json.dumps({"success": False, "error": "Missing table_name parameter"})}]}
-    return await mcp_doris_get_table_indexes(table_name=table_name, db_name=db_name)
+    return await mcp_doris_get_table_indexes(table_name=table_name, db_name=db_name, catalog_name=catalog_name)
 
 # Register Tool: Get Recent Audit Logs
 @stdio_mcp.tool("get_recent_audit_logs", description="""[Function Description]: Get audit log records for a recent period.\n
@@ -139,5 +146,14 @@ async def get_recent_audit_logs_tool(days: int = 7, limit: int = 100) -> Dict[st
     except (ValueError, TypeError):
             return {"content": [{"type": "text", "text": json.dumps({"success": False, "error": "days and limit parameters must be integers"})}]}
     return await mcp_doris_get_recent_audit_logs(days=days, limit=limit)
+
+# Register Tool: Get Catalog List
+@stdio_mcp.tool("get_catalog_list", description="""[Function Description]: Get a list of all catalog names on the server.\n
+[Parameter Content]:\n
+- random_string (string) [Required] - Unique identifier for the tool call\n""")
+async def get_catalog_list_tool() -> Dict[str, Any]:
+    """Wrapper: Get catalog list"""
+    from doris_mcp_server.tools.mcp_doris_tools import mcp_doris_get_catalog_list
+    return await mcp_doris_get_catalog_list()
 
 # --- Register Tools ---

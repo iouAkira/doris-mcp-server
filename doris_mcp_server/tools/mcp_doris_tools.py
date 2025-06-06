@@ -55,20 +55,31 @@ def _format_response(success: bool, result: Any = None, error: str = None, messa
         ]
     }
 
-async def mcp_doris_exec_query(sql: str = None, db_name: str = None, max_rows: int = 100, timeout: int = 30) -> Dict[str, Any]:
+async def mcp_doris_exec_query(sql: str = None, db_name: str = None, catalog_name: str = None, max_rows: int = 100, timeout: int = 30) -> Dict[str, Any]:
     """
-    Executes an SQL query and returns the result.
+    Executes an SQL query and returns the result with catalog federation support.
 
     Args:
-        sql (str): The SQL query to execute.
-        db_name (str, optional): Target database name. Defaults to the configured default database.
+        sql (str): The SQL query to execute. MUST use three-part naming for table references:
+                  - Internal tables: internal.db_name.table_name (e.g., "SELECT * FROM internal.ssb.customer")
+                  - External tables: catalog_name.db_name.table_name (e.g., "SELECT * FROM mysql.ssb.customer")
+                  - Cross-catalog queries: "SELECT * FROM mysql.ssb.customer m JOIN internal.ssb.orders o ON m.id = o.customer_id"
+                  
+                  Examples:
+                  - Query internal catalog: "SELECT COUNT(*) FROM internal.ssb.customer"
+                  - Query MySQL catalog: "SELECT COUNT(*) FROM mysql.ssb.customer" 
+                  - Cross-catalog join: "SELECT * FROM internal.ssb.customer c JOIN mysql.test.user_info u ON c.id = u.customer_id"
+                  
+        db_name (str, optional): Target database name. Only used for connection context, table names in SQL must be fully qualified.
+        catalog_name (str, optional): Reference catalog name for context. Does not affect SQL execution - table names in SQL must be fully qualified.
+                                     Available catalogs can be found using get_catalog_list tool.
         max_rows (int, optional): Maximum number of rows to return. Defaults to 100.
         timeout (int, optional): Query timeout in seconds. Defaults to 30.
 
     Returns:
         Dict[str, Any]: A dictionary containing the query result or an error.
     """
-    logger.info(f"MCP Tool Call: mcp_doris_exec_query, SQL: {sql}, DB: {db_name}, MaxRows: {max_rows}, Timeout: {timeout}")
+    logger.info(f"MCP Tool Call: mcp_doris_exec_query, SQL: {sql}, DB: {db_name}, Catalog: {catalog_name}, MaxRows: {max_rows}, Timeout: {timeout}")
     try:
         if not sql:
             return _format_response(success=False, error="SQL statement not provided", message="Please provide the SQL statement to execute")
@@ -78,6 +89,7 @@ async def mcp_doris_exec_query(sql: str = None, db_name: str = None, max_rows: i
             "params": {
                 "sql": sql,
                 "db_name": db_name,
+                "catalog_name": catalog_name,
                 "max_rows": max_rows,
                 "timeout": timeout
             }
@@ -121,71 +133,71 @@ async def mcp_doris_exec_query(sql: str = None, db_name: str = None, max_rows: i
         return _format_response(success=False, error=str(e), message="Error executing SQL query")
 
 
-async def mcp_doris_get_table_schema(table_name: str, db_name: str = None) -> Dict[str, Any]:
-    logger.info(f"MCP Tool Call: mcp_doris_get_table_schema, Table: {table_name}, DB: {db_name}")
+async def mcp_doris_get_table_schema(table_name: str, db_name: str = None, catalog_name: str = None) -> Dict[str, Any]:
+    logger.info(f"MCP Tool Call: mcp_doris_get_table_schema, Table: {table_name}, DB: {db_name}, Catalog: {catalog_name}")
     if not table_name:
          return _format_response(success=False, error="Missing table_name parameter")
     try:
-        extractor = MetadataExtractor(db_name=db_name)
-        schema = extractor.get_table_schema(table_name=table_name, db_name=db_name)
+        extractor = MetadataExtractor(db_name=db_name, catalog_name=catalog_name)
+        schema = extractor.get_table_schema(table_name=table_name, db_name=db_name, catalog_name=catalog_name)
         if not schema:
-             return _format_response(success=False, error="Table not found or has no columns", message=f"Could not get schema for table {db_name or extractor.db_name}.{table_name}")
+             return _format_response(success=False, error="Table not found or has no columns", message=f"Could not get schema for table {catalog_name or 'default'}.{db_name or extractor.db_name}.{table_name}")
         return _format_response(success=True, result=schema)
     except Exception as e:
         logger.error(f"MCP tool execution failed mcp_doris_get_table_schema: {str(e)}", exc_info=True)
         return _format_response(success=False, error=str(e), message="Error getting table schema")
 
-async def mcp_doris_get_db_table_list(db_name: str = None) -> Dict[str, Any]:
-    logger.info(f"MCP Tool Call: mcp_doris_get_db_table_list, DB: {db_name}")
+async def mcp_doris_get_db_table_list(db_name: str = None, catalog_name: str = None) -> Dict[str, Any]:
+    logger.info(f"MCP Tool Call: mcp_doris_get_db_table_list, DB: {db_name}, Catalog: {catalog_name}")
     try:
-        extractor = MetadataExtractor(db_name=db_name)
-        tables = extractor.get_database_tables(db_name=db_name)
+        extractor = MetadataExtractor(db_name=db_name, catalog_name=catalog_name)
+        tables = extractor.get_database_tables(db_name=db_name, catalog_name=catalog_name)
         return _format_response(success=True, result=tables)
     except Exception as e:
         logger.error(f"MCP tool execution failed mcp_doris_get_db_table_list: {str(e)}", exc_info=True)
         return _format_response(success=False, error=str(e), message="Error getting database table list")
 
-async def mcp_doris_get_db_list() -> Dict[str, Any]:
-    logger.info(f"MCP Tool Call: mcp_doris_get_db_list")
+async def mcp_doris_get_db_list(catalog_name: str = None) -> Dict[str, Any]:
+    logger.info(f"MCP Tool Call: mcp_doris_get_db_list, Catalog: {catalog_name}")
     try:
-        extractor = MetadataExtractor()
-        databases = extractor.get_all_databases()
+        extractor = MetadataExtractor(catalog_name=catalog_name)
+        databases = extractor.get_all_databases(catalog_name=catalog_name)
         return _format_response(success=True, result=databases)
     except Exception as e:
         logger.error(f"MCP tool execution failed mcp_doris_get_db_list: {str(e)}", exc_info=True)
         return _format_response(success=False, error=str(e), message="Error getting database list")
 
-async def mcp_doris_get_table_comment(table_name: str, db_name: str = None) -> Dict[str, Any]:
-    logger.info(f"MCP Tool Call: mcp_doris_get_table_comment, Table: {table_name}, DB: {db_name}")
+async def mcp_doris_get_table_comment(table_name: str, db_name: str = None, catalog_name: str = None) -> Dict[str, Any]:
+    logger.info(f"MCP Tool Call: mcp_doris_get_table_comment, Table: {table_name}, DB: {db_name}, Catalog: {catalog_name}")
     if not table_name:
          return _format_response(success=False, error="Missing table_name parameter")
     try:
-        extractor = MetadataExtractor(db_name=db_name)
-        comment = extractor.get_table_comment(table_name=table_name, db_name=db_name)
+        extractor = MetadataExtractor(db_name=db_name, catalog_name=catalog_name)
+        comment = extractor.get_table_comment(table_name=table_name, db_name=db_name, catalog_name=catalog_name)
         return _format_response(success=True, result=comment)
     except Exception as e:
         logger.error(f"MCP tool execution failed mcp_doris_get_table_comment: {str(e)}", exc_info=True)
         return _format_response(success=False, error=str(e), message="Error getting table comment")
 
-async def mcp_doris_get_table_column_comments(table_name: str, db_name: str = None) -> Dict[str, Any]:
-    logger.info(f"MCP Tool Call: mcp_doris_get_table_column_comments, Table: {table_name}, DB: {db_name}")
+async def mcp_doris_get_table_column_comments(table_name: str, db_name: str = None, catalog_name: str = None) -> Dict[str, Any]:
+    logger.info(f"MCP Tool Call: mcp_doris_get_table_column_comments, Table: {table_name}, DB: {db_name}, Catalog: {catalog_name}")
     if not table_name:
          return _format_response(success=False, error="Missing table_name parameter")
     try:
-        extractor = MetadataExtractor(db_name=db_name)
-        comments = extractor.get_column_comments(table_name=table_name, db_name=db_name)
+        extractor = MetadataExtractor(db_name=db_name, catalog_name=catalog_name)
+        comments = extractor.get_column_comments(table_name=table_name, db_name=db_name, catalog_name=catalog_name)
         return _format_response(success=True, result=comments)
     except Exception as e:
         logger.error(f"MCP tool execution failed mcp_doris_get_table_column_comments: {str(e)}", exc_info=True)
         return _format_response(success=False, error=str(e), message="Error getting column comments")
 
-async def mcp_doris_get_table_indexes(table_name: str, db_name: str = None) -> Dict[str, Any]:
-    logger.info(f"MCP Tool Call: mcp_doris_get_table_indexes, Table: {table_name}, DB: {db_name}")
+async def mcp_doris_get_table_indexes(table_name: str, db_name: str = None, catalog_name: str = None) -> Dict[str, Any]:
+    logger.info(f"MCP Tool Call: mcp_doris_get_table_indexes, Table: {table_name}, DB: {db_name}, Catalog: {catalog_name}")
     if not table_name:
          return _format_response(success=False, error="Missing table_name parameter")
     try:
-        extractor = MetadataExtractor(db_name=db_name)
-        indexes = extractor.get_table_indexes(table_name=table_name, db_name=db_name)
+        extractor = MetadataExtractor(db_name=db_name, catalog_name=catalog_name)
+        indexes = extractor.get_table_indexes(table_name=table_name, db_name=db_name, catalog_name=catalog_name)
         return _format_response(success=True, result=indexes)
     except Exception as e:
         logger.error(f"MCP tool execution failed mcp_doris_get_table_indexes: {str(e)}", exc_info=True)
@@ -200,3 +212,19 @@ async def mcp_doris_get_recent_audit_logs(days: int = 7, limit: int = 100) -> Di
     except Exception as e:
         logger.error(f"MCP tool execution failed mcp_doris_get_recent_audit_logs: {str(e)}", exc_info=True)
         return _format_response(success=False, error=str(e), message="Error getting audit logs")
+
+async def mcp_doris_get_catalog_list() -> Dict[str, Any]:
+    """
+    Get Doris catalog list
+    
+    Returns:
+        Dict[str, Any]: Dictionary containing catalog list or error information
+    """
+    logger.info(f"MCP Tool Call: mcp_doris_get_catalog_list")
+    try:
+        extractor = MetadataExtractor()
+        catalogs = extractor.get_catalog_list()
+        return _format_response(success=True, result=catalogs, message="Successfully retrieved catalog list")
+    except Exception as e:
+        logger.error(f"MCP tool execution failed mcp_doris_get_catalog_list: {str(e)}", exc_info=True)
+        return _format_response(success=False, error=str(e), message="Error getting catalog list")

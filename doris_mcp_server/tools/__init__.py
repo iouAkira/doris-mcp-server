@@ -6,7 +6,8 @@ from .mcp_doris_tools import (
     mcp_doris_get_table_comment,
     mcp_doris_get_table_column_comments,
     mcp_doris_get_table_indexes,
-    mcp_doris_get_recent_audit_logs
+    mcp_doris_get_recent_audit_logs,
+    mcp_doris_get_catalog_list
 )
 
 # The __all__ list should reflect the registered tool names,
@@ -19,5 +20,6 @@ __all__ = [
     "get_table_comment",
     "get_table_column_comments",
     "get_table_indexes",
-    "get_recent_audit_logs"
+    "get_recent_audit_logs",
+    "get_catalog_list"
 ] 

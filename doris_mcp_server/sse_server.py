@@ -1009,7 +1009,8 @@ class DorisMCPSseServer:
             "get_table_comment": "mcp_doris_get_table_comment",
             "get_table_column_comments": "mcp_doris_get_table_column_comments",
             "get_table_indexes": "mcp_doris_get_table_indexes",
-            "get_recent_audit_logs": "mcp_doris_get_recent_audit_logs"
+            "get_recent_audit_logs": "mcp_doris_get_recent_audit_logs",
+            "get_catalog_list": "mcp_doris_get_catalog_list"
         }
         
         # If it's a standard name, convert to MCP name

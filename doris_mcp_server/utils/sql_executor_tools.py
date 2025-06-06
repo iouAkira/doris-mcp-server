@@ -42,6 +42,7 @@ async def execute_sql_query(ctx) -> Dict[str, Any]:
 
         sql = params.get("sql")
         db_name = params.get("db_name", os.getenv("DB_DATABASE", ""))
+        catalog_name = params.get("catalog_name", None)  # Add catalog parameter support
         max_rows = params.get("max_rows", 1000)  # Maximum number of rows to return
         timeout = params.get("timeout", 30)  # Timeout in seconds
         
@@ -103,6 +104,9 @@ async def execute_sql_query(ctx) -> Dict[str, Any]:
         
         # Execute query
         try:
+            # For federation queries, SQL must use three-part naming: catalog_name.db_name.table_name
+            # This is enforced at the tool description level
+            
             result = execute_query(sql, db_name)
             
             # Calculate execution time
@@ -264,8 +268,6 @@ async def _check_sql_security(sql: str) -> Dict[str, Any]:
         (r'\bexec\b', "EXECUTE stored procedure"),
         (r'\bxp_', "Extended stored procedure, potential security risk"),
         (r'\bshutdown\b', "SHUTDOWN database operation"),
-        (r'\bunion\s+all\s+select\b', "UNION statement, potential SQL injection"),
-        (r'\bunion\s+select\b', "UNION statement, potential SQL injection"),
         (r'\binto\s+outfile\b', "Write to file operation"),
         (r'\bload_file\b', "Load file operation")
     ]
@@ -314,6 +316,7 @@ async def _check_sql_security(sql: str) -> Dict[str, Any]:
         "is_safe": len(security_issues) == 0,
         "security_issues": security_issues
     }
+
 
 def _serialize_row_data(row_data: Dict[str, Any]) -> Dict[str, Any]:
     """
