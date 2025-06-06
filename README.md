@@ -9,15 +9,16 @@ Doris MCP (Model Context Protocol) Server is a backend service built with Python
     *   **SSE (Server-Sent Events)**: Served via `/sse` (initialization) and `/mcp/messages` (communication) endpoints (`src/sse_server.py`).
     *   **Streamable HTTP**: Served via the unified `/mcp` endpoint, supporting request/response and streaming (`src/streamable_server.py`).
     *   **(Optional) Stdio**: Interaction possible via standard input/output (`src/stdio_server.py`), requires specific startup configuration.
-*   **Tool-Based Interface**: Core functionalities are encapsulated as MCP tools that clients can call as needed. Currently available key tools focus on direct database interaction:
-    *   SQL Execution (`mcp_doris_exec_query`)
+*   **Tool-Based Interface**: Core functionalities are encapsulated as MCP tools that clients can call as needed. Currently available key tools focus on direct database interaction with full catalog federation support:
+    *   SQL Execution with Catalog Federation (`mcp_doris_exec_query`)
+    *   Catalog Management (`mcp_doris_get_catalog_list`)
     *   Database and Table Listing (`mcp_doris_get_db_list`, `mcp_doris_get_db_table_list`)
     *   Metadata Retrieval (`mcp_doris_get_table_schema`, `mcp_doris_get_table_comment`, `mcp_doris_get_table_column_comments`, `mcp_doris_get_table_indexes`)
     *   Audit Log Retrieval (`mcp_doris_get_recent_audit_logs`)
-    *Note: Current tools primarily focus on direct DB operations.*
+    *Note: All metadata tools support catalog federation for multi-catalog environments.*
 *   **Database Interaction**: Provides functionality to connect to Apache Doris (or other compatible databases) and execute queries (`src/utils/db.py`).
 *   **Flexible Configuration**: Configured via a `.env` file, supporting settings for database connections, LLM providers/models, API keys, logging levels, etc.
-*   **Metadata Extraction**: Capable of extracting database metadata information (`src/utils/schema_extractor.py`).
+*   **Metadata Extraction**: Capable of extracting database metadata information with full catalog federation support (`src/utils/schema_extractor.py`).
 
 ## System Requirements
 
@@ -72,13 +73,14 @@ The following table lists the main tools currently available for invocation via 
 
 | Tool Name                         | Description                                                 | Parameters                                                                                                 | Status   |
 | :-------------------------------- | :---------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------- | :------- |
-| `mcp_doris_get_db_list`           | Get a list of all database names on the server.             | `random_string` (string, Required)                                                                         | ✅ Active |
-| `mcp_doris_get_db_table_list`     | Get a list of all table names in the specified database.    | `random_string` (string, Required), `db_name` (string, Optional, defaults to current db)                   | ✅ Active |
-| `mcp_doris_get_table_schema`      | Get detailed structure of the specified table.              | `random_string` (string, Required), `table_name` (string, Required), `db_name` (string, Optional)           | ✅ Active |
-| `mcp_doris_get_table_comment`     | Get the comment for the specified table.                    | `random_string` (string, Required), `table_name` (string, Required), `db_name` (string, Optional)           | ✅ Active |
-| `mcp_doris_get_table_column_comments` | Get comments for all columns in the specified table.      | `random_string` (string, Required), `table_name` (string, Required), `db_name` (string, Optional)           | ✅ Active |
-| `mcp_doris_get_table_indexes`     | Get index information for the specified table.              | `random_string` (string, Required), `table_name` (string, Required), `db_name` (string, Optional)           | ✅ Active |
-| `mcp_doris_exec_query`            | Execute SQL query and return result command.                | `random_string` (string, Required), `sql` (string, Required), `db_name` (string, Optional), `max_rows` (integer, Optional, default 100), `timeout` (integer, Optional, default 30) | ✅ Active |
+| `mcp_doris_get_catalog_list`      | Get a list of all catalogs with detailed information.       | `random_string` (string, Required)                                                                         | ✅ Active |
+| `mcp_doris_get_db_list`           | Get a list of all database names in the specified catalog.  | `random_string` (string, Required), `catalog_name` (string, Optional, defaults to internal catalog)        | ✅ Active |
+| `mcp_doris_get_db_table_list`     | Get a list of all table names in the specified database.    | `random_string` (string, Required), `db_name` (string, Optional), `catalog_name` (string, Optional)        | ✅ Active |
+| `mcp_doris_get_table_schema`      | Get detailed structure of the specified table.              | `random_string` (string, Required), `table_name` (string, Required), `db_name` (string, Optional), `catalog_name` (string, Optional) | ✅ Active |
+| `mcp_doris_get_table_comment`     | Get the comment for the specified table.                    | `random_string` (string, Required), `table_name` (string, Required), `db_name` (string, Optional), `catalog_name` (string, Optional) | ✅ Active |
+| `mcp_doris_get_table_column_comments` | Get comments for all columns in the specified table.      | `random_string` (string, Required), `table_name` (string, Required), `db_name` (string, Optional), `catalog_name` (string, Optional) | ✅ Active |
+| `mcp_doris_get_table_indexes`     | Get index information for the specified table.              | `random_string` (string, Required), `table_name` (string, Required), `db_name` (string, Optional), `catalog_name` (string, Optional) | ✅ Active |
+| `mcp_doris_exec_query`            | Execute SQL query with catalog federation support.          | `random_string` (string, Required), `sql` (string, Required - MUST use three-part naming), `db_name` (string, Optional), `catalog_name` (string, Optional), `max_rows` (integer, Optional, default 100), `timeout` (integer, Optional, default 30) | ✅ Active |
 | `mcp_doris_get_recent_audit_logs` | Get audit log records for a recent period.                  | `random_string` (string, Required), `days` (integer, Optional, default 7), `limit` (integer, Optional, default 100) | ✅ Active |
 
 **Note:** All tools require a `random_string` parameter as a call identifier, typically handled automatically by the MCP client. "Optional" and "Required" refer to the tool's internal logic; the client might need to provide values for all parameters depending on its implementation. The tool names listed here are the base names; clients might see them prefixed (e.g., `mcp_doris_stdio3_get_db_list`) depending on the connection mode.
@@ -112,12 +114,80 @@ Interaction with the Doris MCP Server requires an **MCP Client**. The client con
 3.  **Call Tool**: The client sends a `tool_call` message/request, specifying the `tool_name` and `arguments`.
     *   **Example: Get Table Schema**
         *   `tool_name`: `mcp_doris_get_table_schema` (or the mode-specific name)
-        *   `arguments`: Include `random_string`, `table_name`, `db_name`.
+        *   `arguments`: Include `random_string`, `table_name`, `db_name`, `catalog_name`.
 4.  **Handle Response**:
     *   **Non-streaming**: The client receives a response containing `result` or `error`.
     *   **Streaming**: The client receives a series of `tools/progress` notifications, followed by a final response containing the `result` or `error`.
 
 Specific tool names and parameters should be referenced from the `src/tools/` code or obtained via MCP discovery mechanisms.
+
+### Catalog Federation Support
+
+The Doris MCP Server supports **catalog federation**, enabling interaction with multiple data catalogs (internal Doris tables and external data sources like Hive, MySQL, etc.) within a unified interface.
+
+#### Key Features:
+
+*   **Multi-Catalog Metadata Access**: All metadata tools (`get_db_list`, `get_db_table_list`, `get_table_schema`, etc.) support an optional `catalog_name` parameter to query specific catalogs.
+*   **Cross-Catalog SQL Queries**: Execute SQL queries that span multiple catalogs using three-part table naming.
+*   **Catalog Discovery**: Use `mcp_doris_get_catalog_list` to discover available catalogs and their types.
+
+#### Three-Part Naming Requirement:
+
+**All SQL queries MUST use three-part naming for table references:**
+
+*   **Internal Tables**: `internal.database_name.table_name`
+*   **External Tables**: `catalog_name.database_name.table_name`
+
+#### Examples:
+
+1.  **Get Available Catalogs:**
+    ```json
+    {
+      "tool_name": "mcp_doris_get_catalog_list",
+      "arguments": {"random_string": "unique_id"}
+    }
+    ```
+
+2.  **Get Databases in Specific Catalog:**
+    ```json
+    {
+      "tool_name": "mcp_doris_get_db_list", 
+      "arguments": {"random_string": "unique_id", "catalog_name": "mysql"}
+    }
+    ```
+
+3.  **Query Internal Catalog:**
+    ```json
+    {
+      "tool_name": "mcp_doris_exec_query",
+      "arguments": {
+        "random_string": "unique_id",
+        "sql": "SELECT COUNT(*) FROM internal.ssb.customer"
+      }
+    }
+    ```
+
+4.  **Query External Catalog:**
+    ```json
+    {
+      "tool_name": "mcp_doris_exec_query", 
+      "arguments": {
+        "random_string": "unique_id",
+        "sql": "SELECT COUNT(*) FROM mysql.ssb.customer"
+      }
+    }
+    ```
+
+5.  **Cross-Catalog Query:**
+    ```json
+    {
+      "tool_name": "mcp_doris_exec_query",
+      "arguments": {
+        "random_string": "unique_id", 
+        "sql": "SELECT i.c_name, m.external_data FROM internal.ssb.customer i JOIN mysql.test.user_info m ON i.c_custkey = m.customer_id"
+      }
+    }
+    ```
 
 ## Connecting with Cursor
 
@@ -225,7 +295,7 @@ This section outlines the process for adding new MCP tools to the Doris MCP Serv
 Before writing new database interaction logic from scratch, check the existing utility modules:
 
 *   **`doris_mcp_server/utils/db.py`**: Provides basic functions for getting database connections (`get_db_connection`) and executing raw queries (`execute_query`, `execute_query_df`).
-*   **`doris_mcp_server/utils/schema_extractor.py` (`MetadataExtractor` class)**: Offers high-level methods to retrieve database metadata, such as listing databases/tables (`get_all_databases`, `get_database_tables`), getting table schemas/comments/indexes (`get_table_schema`, `get_table_comment`, `get_column_comments`, `get_table_indexes`), and accessing audit logs (`get_recent_audit_logs`). It includes caching mechanisms.
+*   **`doris_mcp_server/utils/schema_extractor.py` (`MetadataExtractor` class)**: Offers high-level methods to retrieve database metadata with catalog federation support, such as listing databases/tables (`get_all_databases`, `get_database_tables`), getting table schemas/comments/indexes (`get_table_schema`, `get_table_comment`, `get_column_comments`, `get_table_indexes`), and accessing audit logs (`get_recent_audit_logs`). All methods support optional `catalog_name` parameters for multi-catalog environments. It includes caching mechanisms.
 *   **`doris_mcp_server/utils/sql_executor_tools.py` (`execute_sql_query` function)**: Provides a wrapper around `db.execute_query` that includes security checks (optional, controlled by `ENABLE_SQL_SECURITY_CHECK` env var), adds automatic `LIMIT` to SELECT queries, handles result serialization (dates, decimals), and formats the output into the standard MCP success/error structure. **It's recommended to use this for executing user-provided or generated SQL.**
 
 You can import and combine functionalities from these modules to build your new tool.
