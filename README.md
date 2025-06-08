@@ -2,23 +2,37 @@
 
 Doris MCP (Model Context Protocol) Server is a backend service built with Python and FastAPI. It implements the MCP, allowing clients to interact with it through defined "Tools". It's primarily designed to connect to Apache Doris databases, potentially leveraging Large Language Models (LLMs) for tasks like converting natural language queries to SQL (NL2SQL), executing queries, and performing metadata management and analysis.
 
+## 🚀 What's New in v0.3.0
+
+- **🔄 Streamlined Communication**: Completely migrated from SSE to Streamable HTTP for better performance and reliability
+- **🏗️ Unified Architecture**: Consolidated tools management with centralized registration and routing
+- **⚡ Enhanced Performance**: Improved query execution with advanced caching and optimization
+- **🔒 Enterprise Security**: Added comprehensive security management with SQL validation and data masking
+- **📊 Advanced Analytics**: New column analysis and performance monitoring tools
+- **🛠️ Simplified Development**: Streamlined tool development process with unified interfaces
+
+> **⚠️ Breaking Changes**: SSE endpoints have been removed. Please update your client configurations to use Streamable HTTP (`/mcp` endpoint).
+
 ## Core Features
 
 *   **MCP Protocol Implementation**: Provides standard MCP interfaces, supporting tool calls, resource management, and prompt interactions.
-*   **Multiple Communication Modes**:
-    *   **SSE (Server-Sent Events)**: Served via `/sse` (initialization) and `/mcp/messages` (communication) endpoints (`src/sse_server.py`).
-    *   **Streamable HTTP**: Served via the unified `/mcp` endpoint, supporting request/response and streaming (`src/streamable_server.py`).
-    *   **(Optional) Stdio**: Interaction possible via standard input/output (`src/stdio_server.py`), requires specific startup configuration.
-*   **Tool-Based Interface**: Core functionalities are encapsulated as MCP tools that clients can call as needed. Currently available key tools focus on direct database interaction with full catalog federation support:
-    *   SQL Execution with Catalog Federation (`mcp_doris_exec_query`)
-    *   Catalog Management (`mcp_doris_get_catalog_list`)
-    *   Database and Table Listing (`mcp_doris_get_db_list`, `mcp_doris_get_db_table_list`)
-    *   Metadata Retrieval (`mcp_doris_get_table_schema`, `mcp_doris_get_table_comment`, `mcp_doris_get_table_column_comments`, `mcp_doris_get_table_indexes`)
-    *   Audit Log Retrieval (`mcp_doris_get_recent_audit_logs`)
-    *Note: All metadata tools support catalog federation for multi-catalog environments.*
-*   **Database Interaction**: Provides functionality to connect to Apache Doris (or other compatible databases) and execute queries (`src/utils/db.py`).
-*   **Flexible Configuration**: Configured via a `.env` file, supporting settings for database connections, LLM providers/models, API keys, logging levels, etc.
-*   **Metadata Extraction**: Capable of extracting database metadata information with full catalog federation support (`src/utils/schema_extractor.py`).
+*   **Multiple Communication Modes** (Updated in v0.3.0):
+    *   **Stdio**: Standard input/output mode for direct integration with MCP clients like Cursor.
+    *   **Streamable HTTP**: Unified HTTP endpoint supporting request/response and streaming (Primary mode since v0.3.0).
+    
+    > **⚠️ Breaking Change in v0.3.0**: SSE (Server-Sent Events) mode has been completely removed in favor of the more robust Streamable HTTP implementation.
+*   **Enterprise-Grade Architecture**: Modular design with comprehensive functionality:
+    *   **Tools Manager**: Centralized tool registration and routing (`doris_mcp_server/tools/tools_manager.py`)
+    *   **Resources Manager**: Resource management and metadata exposure (`doris_mcp_server/tools/resources_manager.py`)
+    *   **Prompts Manager**: Intelligent prompt templates for data analysis (`doris_mcp_server/tools/prompts_manager.py`)
+*   **Advanced Database Features**:
+    *   **Query Execution**: High-performance SQL execution with caching and optimization (`doris_mcp_server/utils/query_executor.py`)
+    *   **Security Management**: SQL security validation, data masking, and access control (`doris_mcp_server/utils/security.py`)
+    *   **Metadata Extraction**: Comprehensive database metadata with catalog federation support (`doris_mcp_server/utils/schema_extractor.py`)
+    *   **Performance Analysis**: Column statistics, performance monitoring, and data analysis tools (`doris_mcp_server/utils/analysis_tools.py`)
+*   **Catalog Federation Support**: Full support for multi-catalog environments (internal Doris tables and external data sources like Hive, MySQL, etc.)
+*   **Enterprise Security**: Comprehensive security framework with authentication, authorization, SQL injection protection, and data masking (`doris_mcp_server/utils/security.py`)
+*   **Flexible Configuration**: Comprehensive configuration management with environment variables, file-based config, and validation (`doris_mcp_server/utils/config.py`)
 
 ## System Requirements
 
@@ -43,7 +57,7 @@ pip install -r requirements.txt
 
 ### 3. Configure Environment Variables
 
-Copy the `.env.example` file to `.env` and modify the settings according to your environment:
+Copy the `env.example` file to `.env` and modify the settings according to your environment:
 
 ```bash
 cp env.example .env
@@ -52,74 +66,82 @@ cp env.example .env
 **Key Environment Variables:**
 
 *   **Database Connection**:
-    *   `DB_HOST`: Database hostname
-    *   `DB_PORT`: Database port (default 9030)
-    *   `DB_USER`: Database username
-    *   `DB_PASSWORD`: Database password
-    *   `DB_DATABASE`: Default database name
-*   **Server Configuration**:
-    *   `SERVER_HOST`: Host address the server listens on (default `0.0.0.0`)
-    *   `SERVER_PORT`: Port the server listens on (default `3000`)
-    *   `ALLOWED_ORIGINS`: CORS allowed origins (comma-separated, `*` allows all)
-    *   `MCP_ALLOW_CREDENTIALS`: Whether to allow CORS credentials (default `false`)
+    *   `DORIS_HOST`: Database hostname (default: localhost)
+    *   `DORIS_PORT`: Database port (default: 9030)
+    *   `DORIS_USER`: Database username (default: root)
+    *   `DORIS_PASSWORD`: Database password
+    *   `DORIS_DATABASE`: Default database name (default: test)
+    *   `DORIS_MIN_CONNECTIONS`: Minimum connection pool size (default: 5)
+    *   `DORIS_MAX_CONNECTIONS`: Maximum connection pool size (default: 20)
+*   **Security Configuration**:
+    *   `AUTH_TYPE`: Authentication type (token/basic/oauth, default: token)
+    *   `TOKEN_SECRET`: Token secret key
+    *   `ENABLE_MASKING`: Enable data masking (default: true)
+    *   `MAX_RESULT_ROWS`: Maximum result rows (default: 10000)
+*   **Performance Configuration**:
+    *   `ENABLE_QUERY_CACHE`: Enable query caching (default: true)
+    *   `CACHE_TTL`: Cache time-to-live in seconds (default: 300)
+    *   `MAX_CONCURRENT_QUERIES`: Maximum concurrent queries (default: 50)
 *   **Logging Configuration**:
-    *   `LOG_DIR`: Directory for log files (default `./logs`)
-    *   `LOG_LEVEL`: Log level (e.g., `INFO`, `DEBUG`, `WARNING`, `ERROR`, default `INFO`)
-    *   `CONSOLE_LOGGING`: Whether to output logs to the console (default `false`)
+    *   `LOG_LEVEL`: Log level (DEBUG/INFO/WARNING/ERROR, default: INFO)
+    *   `LOG_FILE_PATH`: Log file path
+    *   `ENABLE_AUDIT`: Enable audit logging (default: true)
 
 ### Available MCP Tools
 
 The following table lists the main tools currently available for invocation via an MCP client:
 
-| Tool Name                         | Description                                                 | Parameters                                                                                                 | Status   |
-| :-------------------------------- | :---------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------- | :------- |
-| `mcp_doris_get_catalog_list`      | Get a list of all catalogs with detailed information.       | `random_string` (string, Required)                                                                         | ✅ Active |
-| `mcp_doris_get_db_list`           | Get a list of all database names in the specified catalog.  | `random_string` (string, Required), `catalog_name` (string, Optional, defaults to internal catalog)        | ✅ Active |
-| `mcp_doris_get_db_table_list`     | Get a list of all table names in the specified database.    | `random_string` (string, Required), `db_name` (string, Optional), `catalog_name` (string, Optional)        | ✅ Active |
-| `mcp_doris_get_table_schema`      | Get detailed structure of the specified table.              | `random_string` (string, Required), `table_name` (string, Required), `db_name` (string, Optional), `catalog_name` (string, Optional) | ✅ Active |
-| `mcp_doris_get_table_comment`     | Get the comment for the specified table.                    | `random_string` (string, Required), `table_name` (string, Required), `db_name` (string, Optional), `catalog_name` (string, Optional) | ✅ Active |
-| `mcp_doris_get_table_column_comments` | Get comments for all columns in the specified table.      | `random_string` (string, Required), `table_name` (string, Required), `db_name` (string, Optional), `catalog_name` (string, Optional) | ✅ Active |
-| `mcp_doris_get_table_indexes`     | Get index information for the specified table.              | `random_string` (string, Required), `table_name` (string, Required), `db_name` (string, Optional), `catalog_name` (string, Optional) | ✅ Active |
-| `mcp_doris_exec_query`            | Execute SQL query with catalog federation support.          | `random_string` (string, Required), `sql` (string, Required - MUST use three-part naming), `db_name` (string, Optional), `catalog_name` (string, Optional), `max_rows` (integer, Optional, default 100), `timeout` (integer, Optional, default 30) | ✅ Active |
-| `mcp_doris_get_recent_audit_logs` | Get audit log records for a recent period.                  | `random_string` (string, Required), `days` (integer, Optional, default 7), `limit` (integer, Optional, default 100) | ✅ Active |
+| Tool Name                   | Description                                                 | Parameters                                                                                                 | Status   |
+|:----------------------------| :---------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------- | :------- |
+| `exec_query`                | Execute SQL query with catalog federation support.          | `sql` (string, Required - MUST use three-part naming), `db_name` (string, Optional), `catalog_name` (string, Optional), `max_rows` (integer, Optional, default 100), `timeout` (integer, Optional, default 30) | ✅ Active |
+| `get_catalog_list`          | Get a list of all catalogs with detailed information.       | `random_string` (string, Required)                                                                         | ✅ Active |
+| `get_db_list`               | Get a list of all database names in the specified catalog.  | `catalog_name` (string, Optional, defaults to internal catalog)                                            | ✅ Active |
+| `get_db_table_list`         | Get a list of all table names in the specified database.    | `db_name` (string, Optional), `catalog_name` (string, Optional)                                            | ✅ Active |
+| `get_table_schema`          | Get detailed structure of the specified table.              | `table_name` (string, Required), `db_name` (string, Optional), `catalog_name` (string, Optional)          | ✅ Active |
+| `get_table_comment`         | Get the comment for the specified table.                    | `table_name` (string, Required), `db_name` (string, Optional), `catalog_name` (string, Optional)          | ✅ Active |
+| `get_table_column_comments` | Get comments for all columns in the specified table.        | `table_name` (string, Required), `db_name` (string, Optional), `catalog_name` (string, Optional)          | ✅ Active |
+| `get_table_indexes`         | Get index information for the specified table.              | `table_name` (string, Required), `db_name` (string, Optional), `catalog_name` (string, Optional)          | ✅ Active |
+| `get_recent_audit_logs`     | Get audit log records for a recent period.                  | `days` (integer, Optional, default 7), `limit` (integer, Optional, default 100)                           | ✅ Active |
+| `column_analysis`           | Analyze statistical information and data distribution.       | `table_name` (string, Required), `column_name` (string, Required), `analysis_type` (string, Optional: basic/distribution/detailed) | ⚠️ Experimental |
+| `performance_stats`         | Get database performance statistics information.             | `metric_type` (string, Optional: queries/connections/tables/system), `time_range` (string, Optional: 1h/6h/24h/7d) | ⚠️ Experimental |
 
-**Note:** All tools require a `random_string` parameter as a call identifier, typically handled automatically by the MCP client. "Optional" and "Required" refer to the tool's internal logic; the client might need to provide values for all parameters depending on its implementation. The tool names listed here are the base names; clients might see them prefixed (e.g., `mcp_doris_stdio3_get_db_list`) depending on the connection mode.
+**Note:** All metadata tools support catalog federation for multi-catalog environments. The `get_catalog_list` tool requires a `random_string` parameter for compatibility reasons.
 
 ### 4. Run the Service
 
-If you use SSE mode, execute the following command:
+Execute the following command to start the server:
 
 ```bash
 ./start_server.sh
 ```
 
-This command starts the FastAPI application, providing both SSE and Streamable HTTP MCP services by default.
+This command starts the FastAPI application with Streamable HTTP MCP service.
 
-**Service Endpoints:**
+**Service Endpoints (v0.3.0+):**
 
-*   **SSE Initialization**: `http://<host>:<port>/sse`
-*   **SSE Communication**: `http://<host>:<port>/mcp/messages` (POST)
-*   **Streamable HTTP**: `http://<host>:<port>/mcp` (Supports GET, POST, DELETE, OPTIONS)
+*   **Streamable HTTP**: `http://<host>:<port>/mcp` (Primary MCP endpoint - supports GET, POST, DELETE, OPTIONS)
 *   **Health Check**: `http://<host>:<port>/health`
-*   **(Potential) Status Check**: `http://<host>:<port>/status` (Confirm if implemented in `main.py`)
+*   **Status Check**: `http://<host>:<port>/status`
+
+> **Note**: Starting from v0.3.0, only Streamable HTTP mode is supported for web-based communication. SSE endpoints have been removed.
 
 ## Usage
 
-Interaction with the Doris MCP Server requires an **MCP Client**. The client connects to the server's SSE or Streamable HTTP endpoints and sends requests (like `tool_call`) according to the MCP specification to invoke the server's tools.
+Interaction with the Doris MCP Server requires an **MCP Client**. The client connects to the server's Streamable HTTP endpoint and sends requests according to the MCP specification to invoke the server's tools.
 
-**Main Interaction Flow:**
+**Main Interaction Flow (v0.3.0+):**
 
-1.  **Client Initialization**: Connect to `/sse` (SSE) or send an `initialize` method call to `/mcp` (Streamable).
-2.  **(Optional) Discover Tools**: The client can call `mcp/listTools` or `mcp/listOfferings` to get the list of supported tools, their descriptions, and parameter schemas.
-3.  **Call Tool**: The client sends a `tool_call` message/request, specifying the `tool_name` and `arguments`.
+1.  **Client Initialization**: Send an `initialize` method call to `/mcp` (Streamable HTTP).
+2.  **(Optional) Discover Tools**: The client can call `tools/list` to get the list of supported tools, their descriptions, and parameter schemas.
+3.  **Call Tool**: The client sends a `tools/call` request, specifying the `name` and `arguments`.
     *   **Example: Get Table Schema**
-        *   `tool_name`: `mcp_doris_get_table_schema` (or the mode-specific name)
-        *   `arguments`: Include `random_string`, `table_name`, `db_name`, `catalog_name`.
+        *   `name`: `get_table_schema`
+        *   `arguments`: Include `table_name`, `db_name`, `catalog_name`.
 4.  **Handle Response**:
-    *   **Non-streaming**: The client receives a response containing `result` or `error`.
-    *   **Streaming**: The client receives a series of `tools/progress` notifications, followed by a final response containing the `result` or `error`.
+    *   **Non-streaming**: The client receives a response containing `content` or `isError`.
+    *   **Streaming**: The client receives a series of progress notifications, followed by a final response.
 
-Specific tool names and parameters should be referenced from the `src/tools/` code or obtained via MCP discovery mechanisms.
+> **Migration Note**: If you're upgrading from v0.2.x, note that tool names have been simplified (removed `mcp_doris_` prefix) and the communication protocol has been updated to use Streamable HTTP exclusively.
 
 ### Catalog Federation Support
 
@@ -189,19 +211,266 @@ The Doris MCP Server supports **catalog federation**, enabling interaction with 
     }
     ```
 
+## Security Configuration (v0.3.0+)
+
+The Doris MCP Server includes a comprehensive security framework that provides enterprise-level protection through authentication, authorization, SQL security validation, and data masking capabilities.
+
+### Security Features
+
+*   **🔐 Authentication**: Support for token-based and basic authentication
+*   **🛡️ Authorization**: Role-based access control (RBAC) with security levels
+*   **🚫 SQL Security**: SQL injection protection and blocked operations
+*   **🎭 Data Masking**: Automatic sensitive data masking based on user permissions
+*   **📊 Security Levels**: Four-tier security classification (Public, Internal, Confidential, Secret)
+
+### Authentication Configuration
+
+Configure authentication in your environment variables:
+
+```bash
+# Authentication Type (token/basic/oauth)
+AUTH_TYPE=token
+
+# Token Secret for JWT validation
+TOKEN_SECRET=your_secret_key_here
+
+# Session timeout (in seconds)
+SESSION_TIMEOUT=3600
+```
+
+#### Token Authentication Example
+
+```python
+# Client authentication with token
+auth_info = {
+    "type": "token",
+    "token": "your_jwt_token",
+    "session_id": "unique_session_id"
+}
+```
+
+#### Basic Authentication Example
+
+```python
+# Client authentication with username/password
+auth_info = {
+    "type": "basic",
+    "username": "analyst",
+    "password": "secure_password",
+    "session_id": "unique_session_id"
+}
+```
+
+### Authorization & Security Levels
+
+The system supports four security levels with hierarchical access control:
+
+| Security Level | Access Scope | Typical Use Cases |
+|:---------------|:-------------|:------------------|
+| **Public** | Unrestricted access | Public reports, general statistics |
+| **Internal** | Company employees | Internal dashboards, business metrics |
+| **Confidential** | Authorized personnel | Customer data, financial reports |
+| **Secret** | Senior management | Strategic data, sensitive analytics |
+
+#### Role Configuration
+
+Configure user roles and permissions:
+
+```python
+# Example role configuration
+role_permissions = {
+    "data_analyst": {
+        "security_level": "internal",
+        "permissions": ["read_data", "execute_query"],
+        "allowed_tables": ["sales", "products", "orders"]
+    },
+    "data_admin": {
+        "security_level": "confidential", 
+        "permissions": ["read_data", "execute_query", "admin"],
+        "allowed_tables": ["*"]
+    },
+    "executive": {
+        "security_level": "secret",
+        "permissions": ["read_data", "execute_query", "admin"],
+        "allowed_tables": ["*"]
+    }
+}
+```
+
+### SQL Security Validation
+
+The system automatically validates SQL queries for security risks:
+
+#### Blocked Operations
+
+Configure blocked SQL operations:
+
+```bash
+# Environment variable
+BLOCKED_SQL_OPERATIONS=DROP,DELETE,TRUNCATE,ALTER,CREATE,INSERT,UPDATE,GRANT,REVOKE
+
+# Maximum query complexity score
+MAX_QUERY_COMPLEXITY=100
+```
+
+#### SQL Injection Protection
+
+The system automatically detects and blocks:
+
+*   **Union-based injections**: `UNION SELECT` attacks
+*   **Boolean-based injections**: `OR 1=1` patterns  
+*   **Time-based injections**: `SLEEP()`, `WAITFOR` functions
+*   **Comment injections**: `--`, `/**/` patterns
+*   **Stacked queries**: Multiple statements separated by `;`
+
+#### Example Security Validation
+
+```python
+# This query would be blocked
+dangerous_sql = "SELECT * FROM users WHERE id = 1; DROP TABLE users;"
+
+# This query would be allowed
+safe_sql = "SELECT name, email FROM users WHERE department = 'sales'"
+```
+
+### Data Masking Configuration
+
+Configure automatic data masking for sensitive information:
+
+#### Built-in Masking Rules
+
+```python
+# Default masking rules
+masking_rules = [
+    {
+        "column_pattern": r".*phone.*|.*mobile.*",
+        "algorithm": "phone_mask",
+        "parameters": {
+            "mask_char": "*",
+            "keep_prefix": 3,
+            "keep_suffix": 4
+        },
+        "security_level": "internal"
+    },
+    {
+        "column_pattern": r".*email.*", 
+        "algorithm": "email_mask",
+        "parameters": {"mask_char": "*"},
+        "security_level": "internal"
+    },
+    {
+        "column_pattern": r".*id_card.*|.*identity.*",
+        "algorithm": "id_mask", 
+        "parameters": {
+            "mask_char": "*",
+            "keep_prefix": 6,
+            "keep_suffix": 4
+        },
+        "security_level": "confidential"
+    }
+]
+```
+
+#### Masking Algorithms
+
+| Algorithm | Description | Example |
+|:----------|:------------|:--------|
+| `phone_mask` | Masks phone numbers | `138****5678` |
+| `email_mask` | Masks email addresses | `j***n@example.com` |
+| `id_mask` | Masks ID card numbers | `110101****1234` |
+| `name_mask` | Masks personal names | `张*明` |
+| `partial_mask` | Partial masking with ratio | `abc***xyz` |
+
+#### Custom Masking Rules
+
+Add custom masking rules in your configuration:
+
+```python
+# Custom masking rule
+custom_rule = {
+    "column_pattern": r".*salary.*|.*income.*",
+    "algorithm": "partial_mask",
+    "parameters": {
+        "mask_char": "*",
+        "mask_ratio": 0.6
+    },
+    "security_level": "confidential"
+}
+```
+
+### Security Configuration Examples
+
+#### Environment Variables
+
+```bash
+# .env file
+AUTH_TYPE=token
+TOKEN_SECRET=your_jwt_secret_key
+ENABLE_MASKING=true
+MAX_RESULT_ROWS=10000
+BLOCKED_SQL_OPERATIONS=DROP,DELETE,TRUNCATE,ALTER
+MAX_QUERY_COMPLEXITY=100
+ENABLE_AUDIT=true
+```
+
+#### Sensitive Tables Configuration
+
+```python
+# Configure sensitive tables with security levels
+sensitive_tables = {
+    "user_profiles": "confidential",
+    "payment_records": "secret", 
+    "employee_salaries": "secret",
+    "customer_data": "confidential",
+    "public_reports": "public"
+}
+```
+
+### Security Best Practices
+
+1. **🔑 Strong Authentication**: Use JWT tokens with proper expiration
+2. **🎯 Principle of Least Privilege**: Grant minimum required permissions
+3. **🔍 Regular Auditing**: Enable audit logging for security monitoring
+4. **🛡️ Input Validation**: All SQL queries are automatically validated
+5. **🎭 Data Classification**: Properly classify data with security levels
+6. **🔄 Regular Updates**: Keep security rules and configurations updated
+
+### Security Monitoring
+
+The system provides comprehensive security monitoring:
+
+```python
+# Security audit log example
+{
+    "timestamp": "2024-01-15T10:30:00Z",
+    "user_id": "analyst_user",
+    "action": "query_execution", 
+    "resource": "customer_data",
+    "result": "blocked",
+    "reason": "insufficient_permissions",
+    "risk_level": "medium"
+}
+```
+
+> **⚠️ Important**: Always test security configurations in a development environment before deploying to production. Regularly review and update security policies based on your organization's requirements.
+
 ## Connecting with Cursor
 
-You can connect Cursor to this MCP server using either Stdio or SSE mode.
+You can connect Cursor to this MCP server using Stdio mode (recommended) or Streamable HTTP mode.
 
 ### Stdio Mode
 
 Stdio mode allows Cursor to manage the server process directly. Configuration is done within Cursor's MCP Server settings file (typically `~/.cursor/mcp.json` or similar).
 
-If you use stdio mode, please execute the following command to download and build the environment dependency package, **but please note that you need to change the project path to the correct path address**:
+### Using uv (Recommended)
+
+If you have `uv` installed, you can run the server directly:
 
 ```bash
-uv --project /your/path/doris-mcp-server run doris-mcp
+uv run --project /path/to/doris-mcp-server doris-mcp-server
 ```
+
+**Note:** Replace `/path/to/doris-mcp-server` with the actual absolute path to your project directory.
 
 1.  **Configure Cursor:** Add an entry like the following to your Cursor MCP configuration:
 
@@ -210,189 +479,205 @@ uv --project /your/path/doris-mcp-server run doris-mcp
       "mcpServers": {
         "doris-stdio": {
           "command": "uv",
-          "args": ["--project", "/path/to/your/doris-mcp-server", "run", "doris-mcp"],
+          "args": ["run", "--project", "/path/to/your/doris-mcp-server", "doris-mcp-server"],
           "env": {
-            "DB_HOST": "127.0.0.1",
-            "DB_PORT": "9030",
-            "DB_USER": "root",
-            "DB_PASSWORD": "your_db_password",
-            "DB_DATABASE": "your_default_db" 
+            "DORIS_HOST": "127.0.0.1",
+            "DORIS_PORT": "9030",
+            "DORIS_USER": "root",
+            "DORIS_PASSWORD": "your_db_password",
+            "DORIS_DATABASE": "your_default_db",
+            "LOG_LEVEL": "INFO"
           }
-        },
-        // ... other server configurations ...
+        }
       }
     }
     ```
 
 2.  **Key Points:**
-    *   Replace `/path/to/your/doris-mcp` with the actual absolute path to the project's root directory on your system. The `--project` argument is crucial for `uv` to find the `pyproject.toml` and run the correct command.
-    *   The `command` is set to `uv` (assuming you use `uv` for package management as indicated by `uv.lock`). The `args` include `--project`, the path, `run`, and `mcp-doris` (which should correspond to a script defined in your `pyproject.toml`).
-    *   Database connection details (`DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_DATABASE`) are set directly in the `env` block within the configuration file. Cursor will pass these to the server process. No `.env` file is needed for this mode when configured via Cursor.
+    *   Replace `/path/to/your/doris-mcp-server` with the actual absolute path to the project's root directory on your system.
+    *   The `--project` argument is crucial for `uv` to find the `pyproject.toml` and run the correct command.
+    *   Database connection details are set directly in the `env` block. Cursor will pass these to the server process.
+    *   No `.env` file is needed for this mode when configured via Cursor.
 
-### SSE Mode
+### Streamable HTTP Mode (v0.3.0+)
 
-SSE mode requires you to run the MCP server independently first, and then tell Cursor how to connect to it.
+Streamable HTTP mode requires you to run the MCP server independently first, and then configure Cursor to connect to it.
 
-1.  **Configure `.env`:** Ensure your database credentials and any other necessary settings (like `SERVER_PORT` if not using the default 3000) are correctly configured in the `.env` file within the project directory.
+1.  **Configure `.env`:** Ensure your database credentials and any other necessary settings are correctly configured in the `.env` file within the project directory.
 2.  **Start the Server:** Run the server from your terminal in the project's root directory:
     ```bash
     ./start_server.sh
     ```
-    This script typically reads the `.env` file and starts the FastAPI server in SSE mode (check the script and `sse_server.py` / `main.py` for specifics). Note the host and port the server is listening on (default is `0.0.0.0:3000`).
-3.  **Configure Cursor:** Add an entry like the following to your Cursor MCP configuration, pointing to the running server's SSE endpoint:
+    This script reads the `.env` file and starts the FastAPI server with Streamable HTTP support. Note the host and port the server is listening on (default is `0.0.0.0:3000`).
+3.  **Configure Cursor:** Add an entry like the following to your Cursor MCP configuration, pointing to the running server's Streamable HTTP endpoint:
 
     ```json
     {
       "mcpServers": {
-        "doris-sse": {
-           "url": "http://127.0.0.1:3000/sse" // Adjust host/port if your server runs elsewhere
-        },
-        // ... other server configurations ...
+        "doris-http": {
+           "url": "http://127.0.0.1:3000/mcp"
+        }
       }
     }
     ```
-    *Note: The example uses the default port `3000`. If your server is configured to run on a different port (like `3010` in the user example), adjust the URL accordingly.*
+    
+    > **Note**: Adjust the host/port if your server runs on a different address. The `/mcp` endpoint is the unified Streamable HTTP interface introduced in v0.3.0.
 
-After configuring either mode in Cursor, you should be able to select the server (e.g., `doris-stdio` or `doris-sse`) and use its tools.
+After configuring either mode in Cursor, you should be able to select the server (e.g., `doris-stdio` or `doris-http`) and use its tools.
+
+> **⚠️ Migration from v0.2.x**: If you were using SSE mode (`/sse` endpoint), update your configuration to use the new Streamable HTTP endpoint (`/mcp`).
 
 ## Directory Structure
 
 ```
 doris-mcp-server/
-├── doris_mcp_server/    # Source code for the MCP server
-│   ├── main.py          # Main entry point, FastAPI app definition
-│   ├── mcp_core.py      # Core MCP tool registration and Stdio handling
-│   ├── sse_server.py    # SSE server implementation
-│   ├── streamable_server.py # Streamable HTTP server implementation
-│   ├── config.py        # Configuration loading
-│   ├── tools/           # MCP tool definitions
-│   │   ├── mcp_doris_tools.py # Main Doris-related MCP tools
-│   │   ├── tool_initializer.py # Tool registration helper (used by mcp_core.py)
+├── doris_mcp_server/           # Main server package
+│   ├── main.py                 # Main entry point and FastAPI app
+│   ├── tools/                  # MCP tools implementation
+│   │   ├── tools_manager.py    # Centralized tools management and registration
+│   │   ├── resources_manager.py # Resource management and metadata exposure
+│   │   ├── prompts_manager.py  # Intelligent prompt templates for data analysis
 │   │   └── __init__.py
-│   ├── utils/           # Utility classes and helper functions
-│   │   ├── db.py              # Database connection and operations
-│   │   ├── logger.py          # Logging configuration
-│   │   ├── schema_extractor.py # Doris metadata/schema extraction logic
-│   │   ├── sql_executor_tools.py # SQL execution helper (might be legacy)
+│   ├── utils/                  # Core utility modules
+│   │   ├── config.py           # Configuration management with validation
+│   │   ├── db.py               # Database connection management with pooling
+│   │   ├── query_executor.py   # High-performance SQL execution with caching
+│   │   ├── security.py         # Security management and data masking
+│   │   ├── schema_extractor.py # Metadata extraction with catalog federation
+│   │   ├── analysis_tools.py   # Data analysis and performance monitoring
+│   │   ├── logger.py           # Logging configuration
 │   │   └── __init__.py
 │   └── __init__.py
-├── logs/                # Log file directory (if file logging enabled)
-├── README.md            # This file
-├── .env.example         # Example environment variable file
-├── requirements.txt     # Python dependencies for pip
-├── pyproject.toml       # Project metadata and build system configuration (PEP 518)
-├── uv.lock              # Lock file for 'uv' package manager (alternative to pip)
-├── start_server.sh      # Script to start the server
-└── restart_server.sh    # Script to restart the server
+├── doris_mcp_client/           # MCP client implementation
+│   ├── client.py               # Unified MCP client for testing and integration
+│   ├── README.md               # Client documentation
+│   └── __init__.py
+├── logs/                       # Log files directory
+├── README.md                   # This documentation
+├── .env.example                # Environment variables template
+├── requirements.txt            # Python dependencies
+├── pyproject.toml              # Project configuration and entry points
+├── uv.lock                     # UV package manager lock file
+├── generate_requirements.py    # Requirements generation script
+├── start_server.sh             # Server startup script
+└── restart_server.sh           # Server restart script
 ```
 
 ## Developing New Tools
 
-This section outlines the process for adding new MCP tools to the Doris MCP Server, considering the current project structure.
+This section outlines the process for adding new MCP tools to the Doris MCP Server, based on the current modular architecture.
 
-### 1. Leverage Utility Modules
+### 1. Leverage Existing Utility Modules
 
-Before writing new database interaction logic from scratch, check the existing utility modules:
+The server provides comprehensive utility modules for common database operations:
 
-*   **`doris_mcp_server/utils/db.py`**: Provides basic functions for getting database connections (`get_db_connection`) and executing raw queries (`execute_query`, `execute_query_df`).
-*   **`doris_mcp_server/utils/schema_extractor.py` (`MetadataExtractor` class)**: Offers high-level methods to retrieve database metadata with catalog federation support, such as listing databases/tables (`get_all_databases`, `get_database_tables`), getting table schemas/comments/indexes (`get_table_schema`, `get_table_comment`, `get_column_comments`, `get_table_indexes`), and accessing audit logs (`get_recent_audit_logs`). All methods support optional `catalog_name` parameters for multi-catalog environments. It includes caching mechanisms.
-*   **`doris_mcp_server/utils/sql_executor_tools.py` (`execute_sql_query` function)**: Provides a wrapper around `db.execute_query` that includes security checks (optional, controlled by `ENABLE_SQL_SECURITY_CHECK` env var), adds automatic `LIMIT` to SELECT queries, handles result serialization (dates, decimals), and formats the output into the standard MCP success/error structure. **It's recommended to use this for executing user-provided or generated SQL.**
-
-You can import and combine functionalities from these modules to build your new tool.
+*   **`doris_mcp_server/utils/db.py`**: Database connection management with connection pooling and health monitoring.
+*   **`doris_mcp_server/utils/query_executor.py`**: High-performance SQL execution with caching, optimization, and performance monitoring.
+*   **`doris_mcp_server/utils/schema_extractor.py`**: Metadata extraction with full catalog federation support.
+*   **`doris_mcp_server/utils/security.py`**: Security management, SQL validation, and data masking.
+*   **`doris_mcp_server/utils/analysis_tools.py`**: Data analysis and statistical tools.
+*   **`doris_mcp_server/utils/config.py`**: Configuration management with validation.
 
 ### 2. Implement Tool Logic
 
-Implement the core logic for your new tool as an `async` function within `doris_mcp_server/tools/mcp_doris_tools.py`. This keeps the primary tool implementations centralized. Ensure your function returns data in a format that can be easily wrapped into the standard MCP response structure (see `_format_response` in the same file for reference).
+Add your new tool to the `DorisToolsManager` class in `doris_mcp_server/tools/tools_manager.py`. The tools manager provides a centralized approach to tool registration and execution.
 
-**Example:** Let's create a simple tool `get_server_time`.
+**Example:** Adding a new analysis tool:
 
 ```python
-# In doris_mcp_server/tools/mcp_doris_tools.py
-import datetime
-# ... other imports ...
-from doris_mcp_server.tools.mcp_doris_tools import _format_response # Reuse formatter
+# In doris_mcp_server/tools/tools_manager.py
 
-# ... existing tools ...
-
-async def mcp_doris_get_server_time() -> Dict[str, Any]:
-    """Gets the current server time."""
-    logger.info(f"MCP Tool Call: mcp_doris_get_server_time")
+async def your_new_analysis_tool(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Your new analysis tool implementation
+    
+    Args:
+        arguments: Tool arguments from MCP client
+        
+    Returns:
+        List of MCP response messages
+    """
     try:
-        current_time = datetime.datetime.now().isoformat()
-        # Use the existing formatter for consistency
-        return _format_response(success=True, result={"server_time": current_time})
+        # Use existing utilities
+        result = await self.query_executor.execute_sql_for_mcp(
+            sql="SELECT COUNT(*) FROM your_table",
+            max_rows=arguments.get("max_rows", 100)
+        )
+        
+        return [{
+            "type": "text",
+            "text": json.dumps(result, ensure_ascii=False, indent=2)
+        }]
+        
     except Exception as e:
-        logger.error(f"MCP tool execution failed mcp_doris_get_server_time: {str(e)}", exc_info=True)
-        return _format_response(success=False, error=str(e), message="Error getting server time")
-
+        logger.error(f"Tool execution failed: {str(e)}", exc_info=True)
+        return [{
+            "type": "text", 
+            "text": f"Error: {str(e)}"
+        }]
 ```
 
-### 3. Register the Tool (Dual Registration)
+### 3. Register the Tool
 
-Due to the separate handling of SSE/Streamable and Stdio modes, you need to register the tool in two places:
-
-**A. SSE/Streamable Registration (`tool_initializer.py`)**
-
-*   Import your new tool function from `mcp_doris_tools.py`.
-*   Inside the `register_mcp_tools` function, add a new wrapper function decorated with `@mcp.tool()`.
-*   The wrapper function should call your core tool function.
-*   Define the tool name and provide a detailed description (including parameters if any) in the decorator. Remember to include the mandatory `random_string` parameter description for client compatibility, even if your wrapper doesn't explicitly use it.
-
-**Example (`tool_initializer.py`):**
+Add your tool to the `_register_tools` method in the same class:
 
 ```python
-# In doris_mcp_server/tools/tool_initializer.py
-# ... other imports ...
-from doris_mcp_server.tools.mcp_doris_tools import (
-    # ... existing tool imports ...
-    mcp_doris_get_server_time # <-- Import the new tool
+# In the _register_tools method of DorisToolsManager
+
+@self.mcp.tool(
+    name="your_new_analysis_tool",
+    description="Description of your new analysis tool",
+    inputSchema={
+        "type": "object",
+        "properties": {
+            "parameter1": {
+                "type": "string",
+                "description": "Description of parameter1"
+            },
+            "parameter2": {
+                "type": "integer", 
+                "description": "Description of parameter2",
+                "default": 100
+            }
+        },
+        "required": ["parameter1"]
+    }
 )
-
-async def register_mcp_tools(mcp):
-    # ... existing tool registrations ...
-
-    # Register Tool: Get Server Time
-    @mcp.tool("get_server_time", description="""[Function Description]: Get the current time of the MCP server.\n
-[Parameter Content]:\n
-- random_string (string) [Required] - Unique identifier for the tool call\n""")
-    async def get_server_time_tool() -> Dict[str, Any]:
-        """Wrapper: Get server time"""
-        # Note: No parameters needed for the core function call here
-        return await mcp_doris_get_server_time()
-
-    # ... logging registration count ...
+async def your_new_analysis_tool_wrapper(arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return await self.your_new_analysis_tool(arguments)
 ```
 
-**B. Stdio Registration (`mcp_core.py`)**
+### 4. Advanced Features
 
-*   Similar to SSE, add a new wrapper function decorated with `@stdio_mcp.tool()`.
-*   **Important:** Import your core tool function (`mcp_doris_get_server_time`) *inside* the wrapper function (delayed import pattern used in this file).
-*   The wrapper calls the core tool function. The wrapper itself *might* need to be `async def` depending on how `FastMCP` handles tools in Stdio mode, even if the underlying function is simple (as seen in the current file structure). Ensure the call matches (e.g., use `await` if calling an async function).
+For more complex tools, you can leverage:
 
-**Example (`mcp_core.py`):**
+*   **Caching**: Use the query executor's built-in caching for performance
+*   **Security**: Apply SQL validation and data masking through the security manager
+*   **Prompts**: Use the prompts manager for intelligent query generation
+*   **Resources**: Expose metadata through the resources manager
+
+### 5. Testing
+
+Test your new tool using the included MCP client:
 
 ```python
-# In doris_mcp_server/mcp_core.py
-# ... other imports and setup ...
+# Using doris_mcp_client/client.py
+from doris_mcp_client.client import DorisUnifiedMCPClient
 
-# ... existing Stdio tool registrations ...
-
-# Register Tool: Get Server Time (for Stdio)
-@stdio_mcp.tool("get_server_time", description="""[Function Description]: Get the current time of the MCP server.\n
-[Parameter Content]:\n
-- random_string (string) [Required] - Unique identifier for the tool call\n""")
-async def get_server_time_tool_stdio() -> Dict[str, Any]: # Using a slightly different wrapper name for clarity if needed
-    """Wrapper: Get server time (Stdio)"""
-    from doris_mcp_server.tools.mcp_doris_tools import mcp_doris_get_server_time # <-- Delayed import
-    # Assuming the Stdio runner handles async wrappers correctly
-    return await mcp_doris_get_server_time()
-
-# --- Register Tools --- (Or wherever the registrations are finalized)
+async def test_new_tool():
+    client = DorisUnifiedMCPClient()
+    result = await client.call_tool("your_new_analysis_tool", {
+        "parameter1": "test_value",
+        "parameter2": 50
+    })
+    print(result)
 ```
 
-### 4. Restart and Test
+## MCP Client
 
-After implementing and registering the tool in both files, restart the MCP server (both SSE mode via `./start_server.sh` and ensure the Stdio command used by Cursor is updated if necessary) and test the new tool using your MCP client (like Cursor) in both connection modes.
+The project includes a unified MCP client (`doris_mcp_client/`) for testing and integration purposes. The client supports multiple connection modes and provides a convenient interface for interacting with the MCP server.
+
+For detailed client documentation, see [`doris_mcp_client/README.md`](doris_mcp_client/README.md).
 
 ## Contributing
 
