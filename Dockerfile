@@ -47,7 +47,7 @@ COPY . .
 RUN mkdir -p /app/logs /app/config /app/data
 
 # Set permissions
-RUN chmod +x /app/start.sh
+RUN chmod +x /app/start_server.sh
 
 # Create non-root user
 RUN groupadd -r doris && useradd -r -g doris doris
@@ -62,4 +62,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 EXPOSE 3000 3001 3002
 
 # Start command
-CMD ["/app/start.sh"] 
+CMD ["/app/start_server.sh"] 
