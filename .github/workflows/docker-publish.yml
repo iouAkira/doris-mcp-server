@@ -32,7 +32,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ secrets.DOCKERHUB_USERNAME }}/doris-mcp-server
+          images: akyakya/doris-mcp-server
           tags: |
             type=raw,value=${{ github.event.inputs.version }}
             type=raw,value=latest
