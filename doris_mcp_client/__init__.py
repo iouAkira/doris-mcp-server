@@ -15,11 +15,11 @@
 # specific language governing permissions and limitations
 # under the License.
 """
-MCP Tools Package - Contains all MCP tool implementations.
+Doris MCP Client Package
 
-This package includes:
-- Doris database tools
-- Resource managers
-- Prompt managers
-- Tool registration and initialization
+Unified MCP client supporting both stdio and HTTP transport modes
 """
+
+from .client import DorisUnifiedClient, DorisClientConfig
+
+__all__ = ["DorisUnifiedClient", "DorisClientConfig"] 

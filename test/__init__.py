@@ -14,12 +14,3 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-"""
-MCP Tools Package - Contains all MCP tool implementations.
-
-This package includes:
-- Doris database tools
-- Resource managers
-- Prompt managers
-- Tool registration and initialization
-"""

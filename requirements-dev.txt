@@ -14,12 +14,23 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-"""
-MCP Tools Package - Contains all MCP tool implementations.
+# 开发依赖 - 从 pyproject.toml 自动生成
+# 安装命令: pip install -r requirements-dev.txt
 
-This package includes:
-- Doris database tools
-- Resource managers
-- Prompt managers
-- Tool registration and initialization
-"""
+pytest>=7.4.0
+pytest-asyncio>=0.23.0
+pytest-cov>=4.1.0
+pytest-mock>=3.12.0
+pytest-xdist>=3.5.0
+ruff>=0.1.0
+black>=23.12.0
+isort>=5.13.0
+flake8>=7.0.0
+mypy>=1.8.0
+bandit>=1.7.0
+safety>=2.3.0
+sphinx>=7.2.0
+sphinx-rtd-theme>=2.0.0
+myst-parser>=2.0.0
+pre-commit>=3.6.0
+tox>=4.11.0

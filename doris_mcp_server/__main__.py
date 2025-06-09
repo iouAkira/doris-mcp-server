@@ -15,11 +15,10 @@
 # specific language governing permissions and limitations
 # under the License.
 """
-MCP Tools Package - Contains all MCP tool implementations.
-
-This package includes:
-- Doris database tools
-- Resource managers
-- Prompt managers
-- Tool registration and initialization
+Entry point for running doris_mcp_server as a module
 """
+
+from .main import main_sync
+
+if __name__ == "__main__":
+    main_sync() 

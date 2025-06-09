@@ -1,3 +1,19 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 """
 Metadata Extraction Tool
 
@@ -8,6 +24,8 @@ import os
 import json
 import pandas as pd
 import re
+import uuid
+import time
 from typing import Dict, List, Any, Optional, Tuple
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
@@ -26,21 +44,25 @@ ENABLE_MULTI_DATABASE=os.getenv("ENABLE_MULTI_DATABASE",True)
 MULTI_DATABASE_NAMES=os.getenv("MULTI_DATABASE_NAMES","")
 
 # Import local modules
-from doris_mcp_server.utils.db import execute_query_df, execute_query
+from .db import DorisConnectionManager
 
 class MetadataExtractor:
     """Apache Doris Metadata Extractor"""
     
-    def __init__(self, db_name: str = None):
+    def __init__(self, db_name: str = None, catalog_name: str = None, connection_manager=None):
         """
         Initialize the metadata extractor
         
         Args:
             db_name: Default database name, uses the currently connected database if not specified
+            catalog_name: Default catalog name for federation queries, uses the current catalog if not specified
+            connection_manager: DorisConnectionManager instance for database operations
         """
         # Get configuration from environment variables
         self.db_name = db_name or os.getenv("DB_DATABASE", "")
+        self.catalog_name = catalog_name  # Store catalog name for federation support
         self.metadata_db = METADATA_DB_NAME  # Use constant
+        self.connection_manager = connection_manager
         
         # Caching system
         self.metadata_cache = {}
@@ -62,6 +84,9 @@ class MetadataExtractor:
         
         # List of excluded system databases
         self.excluded_databases = self._load_excluded_databases()
+        
+        # Session ID for database queries
+        self._session_id = f"metadata_extractor_{uuid.uuid4().hex[:8]}"
         
     def _load_excluded_databases(self) -> List[str]:
         """
@@ -118,14 +143,18 @@ class MetadataExtractor:
         default_patterns = ["^ads_.*$", "^dim_.*$", "^dws_.*$", "^dwd_.*$", "^ods_.*$", "^.*$"]
         return default_patterns
         
-    def get_all_databases(self) -> List[str]:
+    def get_all_databases(self, catalog_name: str = None) -> List[str]:
         """
         Get a list of all databases
         
+        Args:
+            catalog_name: Catalog name for federation queries, uses instance catalog if None
+            
         Returns:
             List of database names
         """
-        cache_key = "databases"
+        effective_catalog = catalog_name or self.catalog_name
+        cache_key = f"databases_{effective_catalog or 'default'}"
         if cache_key in self.metadata_cache and (datetime.now() - self.metadata_cache_time.get(cache_key, datetime.min)).total_seconds() < self.cache_ttl:
             return self.metadata_cache[cache_key]
         
@@ -142,13 +171,13 @@ class MetadataExtractor:
                 SCHEMA_NAME
             """
             
-            result = execute_query(query)
+            result = self._execute_query_with_catalog(query, self.db_name, effective_catalog)
             
             if not result:
                 databases = []
             else:
                 databases = [db["SCHEMA_NAME"] for db in result]
-                logger.info(f"Retrieved database list: {databases}")
+                logger.info(f"Retrieved database list from catalog {effective_catalog or 'default'}: {databases}")
             
             # Update cache
             self.metadata_cache[cache_key] = databases
@@ -205,22 +234,24 @@ class MetadataExtractor:
                 logger.warning(f"Current database {self.db_name} is in the excluded list, metadata retrieval might not work properly")
             return [self.db_name] if self.db_name else []
     
-    def get_database_tables(self, db_name: Optional[str] = None) -> List[str]:
+    def get_database_tables(self, db_name: Optional[str] = None, catalog_name: str = None) -> List[str]:
         """
         Get a list of all tables in the database
         
         Args:
             db_name: Database name, uses current database if None
+            catalog_name: Catalog name for federation queries, uses instance catalog if None
             
         Returns:
             List of table names
         """
         db_name = db_name or self.db_name
+        effective_catalog = catalog_name or self.catalog_name
         if not db_name:
             logger.warning("Database name not specified")
             return []
         
-        cache_key = f"tables_{db_name}"
+        cache_key = f"tables_{effective_catalog or 'default'}_{db_name}"
         if cache_key in self.metadata_cache and (datetime.now() - self.metadata_cache_time.get(cache_key, datetime.min)).total_seconds() < self.cache_ttl:
             return self.metadata_cache[cache_key]
         
@@ -236,14 +267,14 @@ class MetadataExtractor:
                 AND TABLE_TYPE = 'BASE TABLE'
             """
             
-            result = execute_query(query, db_name)
-            logger.info(f"{db_name}.information_schema.tables query result: {result}")
+            result = self._execute_query_with_catalog(query, db_name, effective_catalog)
+            logger.info(f"{effective_catalog or 'default'}.{db_name}.information_schema.tables query result: {result}")
             
             if not result:
                 tables = []
             else:
                 tables = [table['TABLE_NAME'] for table in result]
-                logger.info(f"Table names retrieved from {db_name}.information_schema.tables: {tables}")
+                logger.info(f"Table names retrieved from {effective_catalog or 'default'}.{db_name}.information_schema.tables: {tables}")
             
             # Sort tables by hierarchy matching (if enabled)
             if self.enable_table_hierarchy and tables:
@@ -385,23 +416,25 @@ class MetadataExtractor:
         
         return matches
     
-    def get_table_schema(self, table_name: str, db_name: Optional[str] = None) -> Dict[str, Any]:
+    def get_table_schema(self, table_name: str, db_name: Optional[str] = None, catalog_name: str = None) -> Dict[str, Any]:
         """
         Get the schema information for a table
         
         Args:
             table_name: Table name
             db_name: Database name, uses current database if None
+            catalog_name: Catalog name for federation queries, uses instance catalog if None
             
         Returns:
             Table schema information, including column names, types, nullability, defaults, comments, etc.
         """
         db_name = db_name or self.db_name
+        effective_catalog = catalog_name or self.catalog_name
         if not db_name:
             logger.warning("Database name not specified")
             return {}
         
-        cache_key = f"schema_{db_name}_{table_name}"
+        cache_key = f"schema_{effective_catalog or 'default'}_{db_name}_{table_name}"
         if cache_key in self.metadata_cache and (datetime.now() - self.metadata_cache_time.get(cache_key, datetime.min)).total_seconds() < self.cache_ttl:
             return self.metadata_cache[cache_key]
         
@@ -426,10 +459,10 @@ class MetadataExtractor:
                 ORDINAL_POSITION
             """
             
-            result = execute_query(query)
+            result = self._execute_query_with_catalog(query, db_name, effective_catalog)
             
             if not result:
-                logger.warning(f"Table {db_name}.{table_name} does not exist or has no columns")
+                logger.warning(f"Table {effective_catalog or 'default'}.{db_name}.{table_name} does not exist or has no columns")
                 return {}
                 
             # Create structured table schema information
@@ -449,7 +482,7 @@ class MetadataExtractor:
                 columns.append(column_info)
                 
             # Get table comment
-            table_comment = self.get_table_comment(table_name, db_name)
+            table_comment = self.get_table_comment(table_name, db_name, effective_catalog)
             
             # Build complete structure
             schema = {
@@ -472,7 +505,7 @@ class MetadataExtractor:
                     TABLE_SCHEMA = '{db_name}' 
                     AND TABLE_NAME = '{table_name}'
                 """
-                table_type_result = execute_query(table_type_query)
+                table_type_result = self._execute_query(table_type_query)
                 if table_type_result:
                     schema["table_type"] = table_type_result[0].get("TABLE_TYPE", "")
                     schema["engine"] = table_type_result[0].get("ENGINE", "")
@@ -488,23 +521,25 @@ class MetadataExtractor:
             logger.error(f"Error getting table schema: {str(e)}")
             return {}
     
-    def get_table_comment(self, table_name: str, db_name: Optional[str] = None) -> str:
+    def get_table_comment(self, table_name: str, db_name: Optional[str] = None, catalog_name: str = None) -> str:
         """
         Get the comment for a table
         
         Args:
             table_name: Table name
             db_name: Database name, uses current database if None
+            catalog_name: Catalog name for federation queries, uses instance catalog if None
             
         Returns:
             Table comment
         """
         db_name = db_name or self.db_name
+        effective_catalog = catalog_name or self.catalog_name
         if not db_name:
             logger.warning("Database name not specified")
             return ""
         
-        cache_key = f"table_comment_{db_name}_{table_name}"
+        cache_key = f"table_comment_{effective_catalog or 'default'}_{db_name}_{table_name}"
         if cache_key in self.metadata_cache and (datetime.now() - self.metadata_cache_time.get(cache_key, datetime.min)).total_seconds() < self.cache_ttl:
             return self.metadata_cache[cache_key]
         
@@ -520,7 +555,7 @@ class MetadataExtractor:
                 AND TABLE_NAME = '{table_name}'
             """
             
-            result = execute_query(query)
+            result = self._execute_query_with_catalog(query, db_name, effective_catalog)
             
             if not result or not result[0]:
                 comment = ""
@@ -536,23 +571,25 @@ class MetadataExtractor:
             logger.error(f"Error getting table comment: {str(e)}")
             return ""
     
-    def get_column_comments(self, table_name: str, db_name: Optional[str] = None) -> Dict[str, str]:
+    def get_column_comments(self, table_name: str, db_name: Optional[str] = None, catalog_name: str = None) -> Dict[str, str]:
         """
         Get comments for all columns in a table
         
         Args:
             table_name: Table name
             db_name: Database name, uses current database if None
+            catalog_name: Catalog name for federation queries, uses instance catalog if None
             
         Returns:
             Dictionary of column names and comments
         """
         db_name = db_name or self.db_name
+        effective_catalog = catalog_name or self.catalog_name
         if not db_name:
             logger.warning("Database name not specified")
             return {}
         
-        cache_key = f"column_comments_{db_name}_{table_name}"
+        cache_key = f"column_comments_{effective_catalog or 'default'}_{db_name}_{table_name}"
         if cache_key in self.metadata_cache and (datetime.now() - self.metadata_cache_time.get(cache_key, datetime.min)).total_seconds() < self.cache_ttl:
             return self.metadata_cache[cache_key]
         
@@ -571,7 +608,7 @@ class MetadataExtractor:
                 ORDINAL_POSITION
             """
             
-            result = execute_query(query)
+            result = self._execute_query_with_catalog(query, db_name, effective_catalog)
             
             comments = {}
             for col in result:
@@ -589,53 +626,82 @@ class MetadataExtractor:
             logger.error(f"Error getting column comments: {str(e)}")
             return {}
     
-    def get_table_indexes(self, table_name: str, db_name: Optional[str] = None) -> List[Dict[str, Any]]:
+    def get_table_indexes(self, table_name: str, db_name: Optional[str] = None, catalog_name: str = None) -> List[Dict[str, Any]]:
         """
         Get the index information for a table
         
         Args:
             table_name: Table name
             db_name: Database name, uses the database specified during initialization if None
+            catalog_name: Catalog name for federation queries, uses instance catalog if None
             
         Returns:
             List[Dict[str, Any]]: List of index information
         """
         db_name = db_name or self.db_name
+        effective_catalog = catalog_name or self.catalog_name
         if not db_name:
             logger.error("Database name not specified")
             return []
         
-        cache_key = f"indexes_{db_name}_{table_name}"
+        cache_key = f"indexes_{effective_catalog or 'default'}_{db_name}_{table_name}"
         if cache_key in self.metadata_cache and (datetime.now() - self.metadata_cache_time.get(cache_key, datetime.min)).total_seconds() < self.cache_ttl:
             return self.metadata_cache[cache_key]
         
         try:
-            query = f"SHOW INDEX FROM `{db_name}`.`{table_name}`"
-            df = execute_query_df(query)
+            # Build query with catalog prefix if specified
+            if effective_catalog:
+                query = f"SHOW INDEX FROM `{effective_catalog}`.`{db_name}`.`{table_name}`"
+                logger.info(f"Using three-part naming for index query: {query}")
+            else:
+                query = f"SHOW INDEX FROM `{db_name}`.`{table_name}`"
             
-            # Process results
-            indexes = []
-            current_index = None
-            
-            for _, row in df.iterrows():
-                index_name = row['Key_name']
-                column_name = row['Column_name']
+            try:
+                df = self._execute_query(query, return_dataframe=True)
                 
-                if current_index is None or current_index['name'] != index_name:
+                # Process results
+                indexes = []
+                current_index = None
+                
+                if not df.empty:
+                    for _, row in df.iterrows():
+                        try:
+                            index_name = row['Key_name']
+                            column_name = row['Column_name']
+                            
+                            if current_index is None or current_index['name'] != index_name:
+                                if current_index is not None:
+                                    indexes.append(current_index)
+                                
+                                current_index = {
+                                    'name': index_name,
+                                    'columns': [column_name],
+                                    'unique': row['Non_unique'] == 0,
+                                    'type': row['Index_type']
+                                }
+                            else:
+                                current_index['columns'].append(column_name)
+                        except Exception as row_error:
+                            logger.warning(f"Failed to process index row data: {row_error}")
+                            continue
+                    
                     if current_index is not None:
                         indexes.append(current_index)
-                    
-                    current_index = {
-                        'name': index_name,
-                        'columns': [column_name],
-                        'unique': row['Non_unique'] == 0,
-                        'type': row['Index_type']
-                    }
-                else:
-                    current_index['columns'].append(column_name)
-            
-            if current_index is not None:
-                indexes.append(current_index)
+            except Exception as df_error:
+                logger.warning(f"DataFrame processing failed, trying regular query: {df_error}")
+                # Fall back to regular query
+                result = self._execute_query(query, return_dataframe=False)
+                indexes = []
+                if result:
+                    # Simple processing, no complex index grouping
+                    for row in result:
+                        if isinstance(row, dict):
+                            indexes.append({
+                                'name': row.get('Key_name', ''),
+                                'columns': [row.get('Column_name', '')],
+                                'unique': row.get('Non_unique', 1) == 0,
+                                'type': row.get('Index_type', '')
+                            })
             
             # Update cache
             self.metadata_cache[cache_key] = indexes
@@ -726,11 +792,57 @@ class MetadataExtractor:
             ORDER BY time DESC
             LIMIT {limit}
             """
-            df = execute_query_df(query)
+            df = self._execute_query(query, return_dataframe=True)
             return df
         except Exception as e:
             logger.error(f"Error getting audit logs: {str(e)}")
             return pd.DataFrame()
+    
+    def get_catalog_list(self) -> List[Dict[str, Any]]:
+        """
+        Get a list of all catalogs in Doris with detailed information
+        
+        Returns:
+            List[Dict[str, Any]]: List of catalog information including CatalogId, CatalogName, Type, IsCurrent, CreateTime, LastUpdateTime, Comment
+        """
+        cache_key = "catalogs"
+        if cache_key in self.metadata_cache and (datetime.now() - self.metadata_cache_time.get(cache_key, datetime.min)).total_seconds() < self.cache_ttl:
+            return self.metadata_cache[cache_key]
+        
+        try:
+            # Use SHOW CATALOGS command to get catalog list
+            query = "SHOW CATALOGS"
+            result = self._execute_query(query)
+            
+            if not result:
+                catalogs = []
+            else:
+                # Extract catalog information from the result
+                # SHOW CATALOGS returns: CatalogId, CatalogName, Type, IsCurrent, CreateTime, LastUpdateTime, Comment
+                catalogs = []
+                for row in result:
+                    if isinstance(row, dict):
+                        catalog_info = {
+                            "catalog_id": row.get("CatalogId", ""),
+                            "catalog_name": row.get("CatalogName", ""),
+                            "type": row.get("Type", ""),
+                            "is_current": row.get("IsCurrent", ""),
+                            "create_time": row.get("CreateTime", ""),
+                            "last_update_time": row.get("LastUpdateTime", ""),
+                            "comment": row.get("Comment", "")
+                        }
+                        catalogs.append(catalog_info)
+                
+                logger.info(f"Retrieved catalog list: {catalogs}")
+            
+            # Update cache
+            self.metadata_cache[cache_key] = catalogs
+            self.metadata_cache_time[cache_key] = datetime.now()
+            
+            return catalogs
+        except Exception as e:
+            logger.error(f"Error getting catalog list: {str(e)}")
+            return []
     
     def extract_sql_comments(self, sql: str) -> str:
         """
@@ -989,7 +1101,7 @@ class MetadataExtractor:
                 AND TABLE_NAME = '{table_name}'
             """
             
-            partitions = execute_query(query)
+            partitions = self._execute_query(query)
             
             if not partitions:
                 return {}
@@ -1011,3 +1123,531 @@ class MetadataExtractor:
         except Exception as e:
             logger.error(f"Error getting partition information for table {db_name}.{table_name}: {str(e)}")
             return {}
+
+    def _execute_query_with_catalog(self, query: str, db_name: str = None, catalog_name: str = None):
+        """
+        Execute query with catalog-aware metadata operations using three-part naming
+        
+        Args:
+            query: SQL query to execute
+            db_name: Database name to use
+            catalog_name: Catalog name for three-part naming
+            
+        Returns:
+            Query result
+        """
+        try:
+            # If catalog_name is specified, modify the query to use three-part naming
+            # for information_schema queries
+            if catalog_name and 'information_schema' in query.lower():
+                # Replace 'information_schema' with 'catalog_name.information_schema'
+                modified_query = query.replace('information_schema', f'{catalog_name}.information_schema')
+                logger.info(f"Modified query for catalog {catalog_name}: {modified_query}")
+                return self._execute_query(modified_query, db_name)
+            else:
+                # Execute the original query
+                return self._execute_query(query, db_name)
+        except Exception as e:
+            logger.error(f"Error executing query with catalog: {str(e)}")
+            raise
+
+    async def _execute_query_async(self, query: str, db_name: str = None, return_dataframe: bool = False):
+        """
+        Execute database query asynchronously
+        
+        Args:
+            query: SQL query to execute
+            db_name: Database name to use (optional)
+            return_dataframe: Whether to return a pandas DataFrame instead of list
+            
+        Returns:
+            Query result data (list of dictionaries or pandas DataFrame)
+        """
+        try:
+            if self.connection_manager:
+                # Use the injected connection manager directly (async)
+                result = await self.connection_manager.execute_query(self._session_id, query, None)
+                
+                # Extract data from QueryResult
+                if hasattr(result, 'data'):
+                    data = result.data
+                else:
+                    data = result
+                
+                # Convert to DataFrame if requested
+                if return_dataframe and data:
+                    import pandas as pd
+                    return pd.DataFrame(data)
+                elif return_dataframe:
+                    import pandas as pd
+                    return pd.DataFrame()
+                else:
+                    return data
+            else:
+                # Fallback: Return empty result
+                logger.warning("No connection manager provided, returning empty result")
+                if return_dataframe:
+                    import pandas as pd
+                    return pd.DataFrame()
+                else:
+                    return []
+        except Exception as e:
+            logger.error(f"Error executing query: {str(e)}")
+            # Return empty result instead of raising exception to prevent cascade failures
+            if return_dataframe:
+                import pandas as pd
+                return pd.DataFrame()
+            else:
+                return []
+
+    def _execute_query(self, query: str, db_name: str = None, return_dataframe: bool = False):
+        """
+        Execute database query with proper session management (sync wrapper)
+        
+        Args:
+            query: SQL query to execute
+            db_name: Database name to use (optional)
+            return_dataframe: Whether to return a pandas DataFrame instead of list
+            
+        Returns:
+            Query result data (list of dictionaries or pandas DataFrame)
+        """
+        try:
+            if self.connection_manager:
+                import asyncio
+                
+                # Try to run the async query
+                try:
+                    # Check if there's a running event loop
+                    loop = asyncio.get_running_loop()
+                    # If we're in an async context, we need to run in a separate thread
+                    import concurrent.futures
+                    
+                    def run_in_new_loop():
+                        new_loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(new_loop)
+                        try:
+                            return new_loop.run_until_complete(
+                                self._execute_query_async(query, db_name, return_dataframe)
+                            )
+                        finally:
+                            new_loop.close()
+                    
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(run_in_new_loop)
+                        return future.result(timeout=30)
+                        
+                except RuntimeError:
+                    # No running loop, we can safely create one
+                    return asyncio.run(
+                        self._execute_query_async(query, db_name, return_dataframe)
+                    )
+            else:
+                # Fallback: Return empty result
+                logger.warning("No connection manager provided, returning empty result")
+                if return_dataframe:
+                    import pandas as pd
+                    return pd.DataFrame()
+                else:
+                    return []
+        except Exception as e:
+            logger.error(f"Error executing query: {str(e)}")
+            # Return empty result instead of raising exception to prevent cascade failures
+            if return_dataframe:
+                import pandas as pd
+                return pd.DataFrame()
+            else:
+                return []
+
+    async def get_table_schema_async(self, table_name: str, db_name: str = None, catalog_name: str = None) -> List[Dict[str, Any]]:
+        """Asynchronously get table schema information"""
+        try:
+            # Use async query method
+            effective_catalog = catalog_name or self.catalog_name
+            
+            # Build query statement
+            if effective_catalog and effective_catalog != "internal":
+                query = f"DESCRIBE `{effective_catalog}`.`{db_name or self.db_name}`.`{table_name}`"
+            else:
+                query = f"DESCRIBE `{db_name or self.db_name}`.`{table_name}`"
+            
+            # Execute async query
+            result = await self._execute_query_async(query, db_name)
+            
+            if not result:
+                return []
+            
+            # Process results
+            schema = []
+            for row in result:
+                if isinstance(row, dict):
+                    schema.append({
+                        'column_name': row.get('Field', ''),
+                        'data_type': row.get('Type', ''),
+                        'is_nullable': row.get('Null', 'NO') == 'YES',
+                        'default_value': row.get('Default', None),
+                        'comment': row.get('Comment', ''),
+                        'key': row.get('Key', ''),
+                        'extra': row.get('Extra', '')
+                    })
+            
+            return schema
+            
+        except Exception as e:
+            logger.error(f"Failed to get table schema: {e}")
+            return []
+
+    async def get_all_databases_async(self, catalog_name: str = None) -> List[str]:
+        """Asynchronously get all database list"""
+        try:
+            effective_catalog = catalog_name or self.catalog_name
+            
+            if effective_catalog and effective_catalog != "internal":
+                query = f"SHOW DATABASES FROM `{effective_catalog}`"
+            else:
+                query = "SHOW DATABASES"
+            
+            result = await self._execute_query_async(query)
+            
+            if not result:
+                return []
+            
+            # Extract database names
+            databases = []
+            for row in result:
+                if isinstance(row, dict):
+                    # Get the value of the first field (usually Database field)
+                    db_name = list(row.values())[0] if row else None
+                    if db_name:
+                        databases.append(db_name)
+            
+            return databases
+            
+        except Exception as e:
+            logger.error(f"Failed to get database list: {e}")
+            return []
+
+    async def get_database_tables_async(self, db_name: str = None, catalog_name: str = None) -> List[str]:
+        """Asynchronously get table list in database"""
+        try:
+            effective_catalog = catalog_name or self.catalog_name
+            effective_db = db_name or self.db_name
+            
+            if effective_catalog and effective_catalog != "internal":
+                query = f"SHOW TABLES FROM `{effective_catalog}`.`{effective_db}`"
+            else:
+                query = f"SHOW TABLES FROM `{effective_db}`"
+            
+            result = await self._execute_query_async(query, effective_db)
+            
+            if not result:
+                return []
+            
+            # Extract table names
+            tables = []
+            for row in result:
+                if isinstance(row, dict):
+                    # Get the value of the first field (usually Tables_in_xxx field)
+                    table_name = list(row.values())[0] if row else None
+                    if table_name:
+                        tables.append(table_name)
+            
+            return tables
+            
+        except Exception as e:
+            logger.error(f"Failed to get table list: {e}")
+            return []
+
+    async def get_catalog_list_async(self) -> List[str]:
+        """Asynchronously get catalog list"""
+        try:
+            query = "SHOW CATALOGS"
+            result = await self._execute_query_async(query)
+            
+            if not result:
+                return []
+            
+            # Extract catalog names
+            catalogs = []
+            for row in result:
+                if isinstance(row, dict):
+                    # SHOW CATALOGS returns fields including: CatalogId, CatalogName, Type, IsCurrent, CreateTime, LastUpdateTime, Comment
+                    # We need to get the CatalogName field (second field)
+                    if 'CatalogName' in row:
+                        catalog_name = row['CatalogName']
+                    else:
+                        # If no CatalogName field, try to get the second field
+                        values = list(row.values())
+                        catalog_name = values[1] if len(values) > 1 else values[0] if values else None
+                    
+                    if catalog_name:
+                        catalogs.append(str(catalog_name))
+            
+            return catalogs
+            
+        except Exception as e:
+            logger.error(f"Failed to get catalog list: {e}")
+            return []
+
+    # ==================== Business layer methods (original metadata_tools.py functionality) ====================
+    
+    def _format_response(self, success: bool, result: Any = None, error: str = None, message: str = "") -> Dict[str, Any]:
+        """Format response result"""
+        response_data = {
+            "success": success,
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+        }
+        if success and result is not None:
+            response_data["result"] = result
+            response_data["message"] = message or "Operation successful"
+        elif not success:
+            response_data["error"] = error or "Unknown error"
+            response_data["message"] = message or "Operation failed"
+        
+        return response_data
+
+    async def exec_query_for_mcp(
+        self, 
+        sql: str, 
+        db_name: str = None, 
+        catalog_name: str = None, 
+        max_rows: int = 100, 
+        timeout: int = 30
+    ) -> Dict[str, Any]:
+        """
+        Execute SQL query and return results, supports catalog federation queries
+        Unified interface for MCP tools
+        """
+        logger.info(f"Executing SQL query: {sql}, DB: {db_name}, Catalog: {catalog_name}, MaxRows: {max_rows}, Timeout: {timeout}")
+        
+        try:
+            if not sql:
+                return self._format_response(success=False, error="No SQL statement provided", message="Please provide SQL statement to execute")
+
+            # Import query executor
+            from .query_executor import execute_sql_query
+
+            # Call execute_sql_query to execute query
+            exec_result = await execute_sql_query(
+                sql=sql,
+                connection_manager=self.connection_manager,
+                limit=max_rows,
+                timeout=timeout
+            )
+
+            return exec_result
+
+        except Exception as e:
+            logger.error(f"Failed to execute SQL query: {str(e)}", exc_info=True)
+            return self._format_response(success=False, error=str(e), message="Error occurred while executing SQL query")
+
+    async def get_table_schema_for_mcp(
+        self, 
+        table_name: str, 
+        db_name: str = None, 
+        catalog_name: str = None
+    ) -> Dict[str, Any]:
+        """Get detailed schema information for specified table (columns, types, comments, etc.) - MCP interface"""
+        logger.info(f"Getting table schema: Table: {table_name}, DB: {db_name}, Catalog: {catalog_name}")
+        
+        if not table_name:
+            return self._format_response(success=False, error="Missing table_name parameter")
+        
+        try:
+            schema = await self.get_table_schema_async(table_name=table_name, db_name=db_name, catalog_name=catalog_name)
+            
+            if not schema:
+                return self._format_response(
+                    success=False, 
+                    error="Table does not exist or has no columns", 
+                    message=f"Unable to get schema for table {catalog_name or 'default'}.{db_name or self.db_name}.{table_name}"
+                )
+            
+            return self._format_response(success=True, result=schema)
+        except Exception as e:
+            logger.error(f"Failed to get table schema: {str(e)}", exc_info=True)
+            return self._format_response(success=False, error=str(e), message="Error occurred while getting table schema")
+
+    async def get_db_table_list_for_mcp(
+        self, 
+        db_name: str = None, 
+        catalog_name: str = None
+    ) -> Dict[str, Any]:
+        """Get list of all table names in specified database - MCP interface"""
+        logger.info(f"Getting database table list: DB: {db_name}, Catalog: {catalog_name}")
+        
+        try:
+            tables = await self.get_database_tables_async(db_name=db_name, catalog_name=catalog_name)
+            return self._format_response(success=True, result=tables)
+        except Exception as e:
+            logger.error(f"Failed to get database table list: {str(e)}", exc_info=True)
+            return self._format_response(success=False, error=str(e), message="Error occurred while getting database table list")
+
+    async def get_db_list_for_mcp(self, catalog_name: str = None) -> Dict[str, Any]:
+        """Get list of all database names on server - MCP interface"""
+        logger.info(f"Getting database list: Catalog: {catalog_name}")
+        
+        try:
+            databases = await self.get_all_databases_async(catalog_name=catalog_name)
+            return self._format_response(success=True, result=databases)
+        except Exception as e:
+            logger.error(f"Failed to get database list: {str(e)}", exc_info=True)
+            return self._format_response(success=False, error=str(e), message="Error occurred while getting database list")
+
+    async def get_table_comment_for_mcp(
+        self, 
+        table_name: str, 
+        db_name: str = None, 
+        catalog_name: str = None
+    ) -> Dict[str, Any]:
+        """Get comment information for specified table - MCP interface"""
+        logger.info(f"Getting table comment: Table: {table_name}, DB: {db_name}, Catalog: {catalog_name}")
+        
+        if not table_name:
+            return self._format_response(success=False, error="Missing table_name parameter")
+        
+        try:
+            comment = self.get_table_comment(table_name=table_name, db_name=db_name, catalog_name=catalog_name)
+            return self._format_response(success=True, result=comment)
+        except Exception as e:
+            logger.error(f"Failed to get table comment: {str(e)}", exc_info=True)
+            return self._format_response(success=False, error=str(e), message="Error occurred while getting table comment")
+
+    async def get_table_column_comments_for_mcp(
+        self, 
+        table_name: str, 
+        db_name: str = None, 
+        catalog_name: str = None
+    ) -> Dict[str, Any]:
+        """Get comment information for all columns in specified table - MCP interface"""
+        logger.info(f"Getting table column comments: Table: {table_name}, DB: {db_name}, Catalog: {catalog_name}")
+        
+        if not table_name:
+            return self._format_response(success=False, error="Missing table_name parameter")
+        
+        try:
+            comments = self.get_column_comments(table_name=table_name, db_name=db_name, catalog_name=catalog_name)
+            return self._format_response(success=True, result=comments)
+        except Exception as e:
+            logger.error(f"Failed to get table column comments: {str(e)}", exc_info=True)
+            return self._format_response(success=False, error=str(e), message="Error occurred while getting table column comments")
+
+    async def get_table_indexes_for_mcp(
+        self, 
+        table_name: str, 
+        db_name: str = None, 
+        catalog_name: str = None
+    ) -> Dict[str, Any]:
+        """Get index information for specified table - MCP interface"""
+        logger.info(f"Getting table indexes: Table: {table_name}, DB: {db_name}, Catalog: {catalog_name}")
+        
+        if not table_name:
+            return self._format_response(success=False, error="Missing table_name parameter")
+        
+        try:
+            indexes = self.get_table_indexes(table_name=table_name, db_name=db_name, catalog_name=catalog_name)
+            return self._format_response(success=True, result=indexes)
+        except Exception as e:
+            logger.error(f"Failed to get table indexes: {str(e)}", exc_info=True)
+            return self._format_response(success=False, error=str(e), message="Error occurred while getting table indexes")
+
+    def _serialize_datetime_objects(self, data):
+        """Serialize datetime objects to JSON compatible format"""
+        if isinstance(data, list):
+            return [self._serialize_datetime_objects(item) for item in data]
+        elif isinstance(data, dict):
+            return {key: self._serialize_datetime_objects(value) for key, value in data.items()}
+        elif hasattr(data, 'isoformat'):  # datetime, date, time objects
+            return data.isoformat()
+        elif hasattr(data, 'strftime'):  # pandas Timestamp objects
+            return data.strftime('%Y-%m-%d %H:%M:%S')
+        else:
+            return data
+
+    async def get_recent_audit_logs_for_mcp(self, days: int = 7, limit: int = 100) -> Dict[str, Any]:
+        """Get recent audit log records - MCP interface"""
+        logger.info(f"Getting audit logs: Days: {days}, Limit: {limit}")
+        
+        try:
+            logs_df = self.get_recent_audit_logs(days=days, limit=limit)
+            
+            # Convert DataFrame to JSON format
+            if hasattr(logs_df, 'to_dict'):
+                try:
+                    logs_data = logs_df.to_dict('records')
+                except Exception as e:
+                    logger.warning(f"DataFrame.to_dict failed, trying manual conversion: {e}")
+                    # Manually convert DataFrame to records format
+                    logs_data = []
+                    if not logs_df.empty:
+                        for _, row in logs_df.iterrows():
+                            logs_data.append(dict(row))
+                # Serialize datetime objects
+                logs_data = self._serialize_datetime_objects(logs_data)
+            else:
+                logs_data = self._serialize_datetime_objects(logs_df)
+                
+            return self._format_response(success=True, result=logs_data)
+        except Exception as e:
+            logger.error(f"Failed to get audit logs: {str(e)}", exc_info=True)
+            return self._format_response(success=False, error=str(e), message="Error occurred while getting audit logs")
+
+    async def get_catalog_list_for_mcp(self) -> Dict[str, Any]:
+        """Get Doris catalog list - MCP interface"""
+        logger.info("Getting catalog list")
+        
+        try:
+            catalogs = await self.get_catalog_list_async()
+            return self._format_response(success=True, result=catalogs, message="Successfully retrieved catalog list")
+        except Exception as e:
+            logger.error(f"Failed to get catalog list: {str(e)}", exc_info=True)
+            return self._format_response(success=False, error=str(e), message="Error occurred while getting catalog list")
+
+
+# ==================== Compatibility aliases ====================
+
+# For backward compatibility, create MetadataManager alias
+class MetadataManager:
+    """
+    Metadata manager - backward compatibility class
+    Actually a wrapper for MetadataExtractor
+    """
+    
+    def __init__(self, connection_manager=None):
+        self.extractor = MetadataExtractor(connection_manager=connection_manager)
+    
+    async def exec_query(self, sql: str, db_name: str = None, catalog_name: str = None, max_rows: int = 100, timeout: int = 30) -> Dict[str, Any]:
+        """Execute SQL query and return results, supports catalog federation queries"""
+        return await self.extractor.exec_query_for_mcp(sql, db_name, catalog_name, max_rows, timeout)
+    
+    async def get_table_schema(self, table_name: str, db_name: str = None, catalog_name: str = None) -> Dict[str, Any]:
+        """Get detailed schema information for specified table (columns, types, comments, etc.)"""
+        return await self.extractor.get_table_schema_for_mcp(table_name, db_name, catalog_name)
+    
+    async def get_db_table_list(self, db_name: str = None, catalog_name: str = None) -> Dict[str, Any]:
+        """Get list of all table names in specified database"""
+        return await self.extractor.get_db_table_list_for_mcp(db_name, catalog_name)
+    
+    async def get_db_list(self, catalog_name: str = None) -> Dict[str, Any]:
+        """Get list of all database names on server"""
+        return await self.extractor.get_db_list_for_mcp(catalog_name)
+    
+    async def get_table_comment(self, table_name: str, db_name: str = None, catalog_name: str = None) -> Dict[str, Any]:
+        """Get comment information for specified table"""
+        return await self.extractor.get_table_comment_for_mcp(table_name, db_name, catalog_name)
+    
+    async def get_table_column_comments(self, table_name: str, db_name: str = None, catalog_name: str = None) -> Dict[str, Any]:
+        """Get comment information for all columns in specified table"""
+        return await self.extractor.get_table_column_comments_for_mcp(table_name, db_name, catalog_name)
+    
+    async def get_table_indexes(self, table_name: str, db_name: str = None, catalog_name: str = None) -> Dict[str, Any]:
+        """Get index information for specified table"""
+        return await self.extractor.get_table_indexes_for_mcp(table_name, db_name, catalog_name)
+    
+    async def get_recent_audit_logs(self, days: int = 7, limit: int = 100) -> Dict[str, Any]:
+        """Get recent audit log records"""
+        return await self.extractor.get_recent_audit_logs_for_mcp(days, limit)
+    
+    async def get_catalog_list(self) -> Dict[str, Any]:
+        """Get Doris catalog list"""
+        return await self.extractor.get_catalog_list_for_mcp()
