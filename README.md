@@ -806,6 +806,29 @@ This project is licensed under the Apache 2.0 License. See the LICENSE file for 
 
 **A:** This is a common issue. The main reason is that these models need more explicit guidance to correctly use MCP tools. It's recommended to add the following instruction prompt for the model:
 
+- Chinese version：
+
+```xml
+<instruction>
+尽可能使用MCP工具完成任务，仔细阅读每个工具的注解、方法名、参数说明等内容。请按照以下步骤操作：
+
+1. 仔细分析用户的问题，从已有的Tools列表中匹配最合适的工具。
+2. 确保工具名称、方法名和参数完全按照工具注释中的定义使用，不要自行创造工具名称或参数。
+3. 传入参数时，严格遵循工具注释中规定的参数格式和要求。
+4. 调用工具时，根据需要直接调用工具，但参数请求参考以下请求格式：{"mcp_sse_call_tool": {"tool_name": "$tools_name", "arguments": "{}"}}
+5. 输出结果时，不要包含任何XML标签，仅返回纯文本内容。
+
+<input>
+用户问题：user_query
+</input>
+
+<output>
+返回工具调用结果或最终答案，以及对结果的分析。
+</output>
+</instruction>
+```
+- English version：
+
 ```xml
 <instruction>
 Use MCP tools to complete tasks as much as possible. Carefully read the annotations, method names, and parameter descriptions of each tool. Please follow these steps:
