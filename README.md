@@ -799,3 +799,122 @@ Contributions are welcome via Issues or Pull Requests.
 ## License
 
 This project is licensed under the Apache 2.0 License. See the LICENSE file for details. 
+
+## FAQ
+
+### Q: Why do Qwen3-32b and other small parameter models always fail when calling tools?
+
+**A:** This is a common issue. The main reason is that these models need more explicit guidance to correctly use MCP tools. It's recommended to add the following instruction prompt for the model:
+
+```xml
+<instruction>
+Use MCP tools to complete tasks as much as possible. Carefully read the annotations, method names, and parameter descriptions of each tool. Please follow these steps:
+
+1. Carefully analyze the user's question and match the most appropriate tool from the existing Tools list.
+2. Ensure tool names, method names, and parameters are used exactly as defined in the tool annotations. Do not create tool names or parameters on your own.
+3. When passing parameters, strictly follow the parameter format and requirements specified in the tool annotations.
+4. When calling tools, call them directly as needed, but refer to the following request format for parameters: {"mcp_sse_call_tool": {"tool_name": "$tools_name", "arguments": "{}"}}
+5. When outputting results, do not include any XML tags, return plain text content only.
+
+<input>
+User question: user_query
+</input>
+
+<output>
+Return tool call results or final answer, along with analysis of the results.
+</output>
+</instruction>
+```
+
+If you have further requirements for the returned results, you can describe the specific requirements in the `<output>` tag.
+
+### Q: How to configure different database connections?
+
+**A:** You can configure database connections in several ways:
+
+1. **Environment Variables** (Recommended):
+   ```bash
+   export DORIS_HOST="your_doris_host"
+   export DORIS_PORT="9030"
+   export DORIS_USER="root"
+   export DORIS_PASSWORD="your_password"
+   ```
+
+2. **Command Line Arguments**:
+   ```bash
+   doris-mcp-server --db-host your_host --db-port 9030 --db-user root --db-password your_password
+   ```
+
+3. **Configuration File**:
+   Modify the corresponding configuration items in the `.env` file.
+
+### Q: How to enable data security and masking features?
+
+**A:** Set the following configurations in your `.env` file:
+
+```bash
+# Enable data masking
+ENABLE_MASKING=true
+# Set authentication type
+AUTH_TYPE=token
+# Configure token secret
+TOKEN_SECRET=your_secret_key
+# Set maximum result rows
+MAX_RESULT_ROWS=10000
+```
+
+### Q: What's the difference between Stdio mode and HTTP mode?
+
+**A:** 
+
+- **Stdio Mode**: Suitable for direct integration with MCP clients (like Cursor), where the client manages the server process
+- **HTTP Mode**: Independent web service that supports multiple client connections, suitable for production environments
+
+Recommendations:
+- Development and personal use: Stdio mode
+- Production and multi-user environments: HTTP mode
+
+### Q: How to resolve connection timeout issues?
+
+**A:** Try the following solutions:
+
+1. **Increase timeout settings**:
+   ```bash
+   # Set in .env file
+   QUERY_TIMEOUT=60
+   CONNECTION_TIMEOUT=30
+   ```
+
+2. **Check network connectivity**:
+   ```bash
+   # Test database connection
+   curl http://localhost:3000/health
+   ```
+
+3. **Optimize connection pool configuration**:
+   ```bash
+   DORIS_MIN_CONNECTIONS=5
+   DORIS_MAX_CONNECTIONS=20
+   ```
+
+### Q: How to view server logs?
+
+**A:** Log files are located in the `logs/` directory. You can:
+
+1. **View real-time logs**:
+   ```bash
+   tail -f logs/doris_mcp_server.log
+   ```
+
+2. **Adjust log level**:
+   ```bash
+   # Set in .env file
+   LOG_LEVEL=DEBUG
+   ```
+
+3. **Enable audit logging**:
+   ```bash
+   ENABLE_AUDIT=true
+   ```
+
+For other issues, please check GitHub Issues or submit a new issue. 
