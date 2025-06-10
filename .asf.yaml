@@ -28,5 +28,14 @@ github:
     squash:  true
     merge:   false
     rebase:  false
+  features:
+    # Enable wiki for documentation
+    wiki: true
+    # Enable issue management
+    issues: true
+    # Enable projects for project management boardS
+    projects: true
+    # Enable discussions
+    discussions: true
 notifications:
   pullrequests_status:  commits@doris.apache.org
