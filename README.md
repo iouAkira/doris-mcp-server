@@ -151,10 +151,10 @@ pip install -r requirements.txt
 
 ### 3. Configure Environment Variables
 
-Copy the `env.example` file to `.env` and modify the settings according to your environment:
+Copy the `.env.example` file to `.env` and modify the settings according to your environment:
 
 ```bash
-cp env.example .env
+cp .env.example .env
 ```
 
 **Key Environment Variables:**
