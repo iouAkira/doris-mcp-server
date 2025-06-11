@@ -44,10 +44,14 @@ from .tools.resources_manager import DorisResourcesManager
 from .utils.config import DorisConfig
 from .utils.db import DorisConnectionManager
 from .utils.security import DorisSecurityManager
+import os
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Create a default config instance for getting default values
+_default_config = DorisConfig()
 
 
 class DorisServer:
@@ -204,7 +208,7 @@ class DorisServer:
                     
                     init_options = InitializationOptions(
                         server_name="doris-mcp-server",
-                        server_version="1.0.0",
+                        server_version=os.getenv("SERVER_VERSION", _default_config.server_version),
                         capabilities=capabilities,
                     )
                     self.logger.info("Initialization options created successfully")
@@ -237,7 +241,7 @@ class DorisServer:
 
 
 
-    async def start_http(self, host: str = "localhost", port: int = 3000):
+    async def start_http(self, host: str = os.getenv("SERVER_HOST", _default_config.database.host), port: int = os.getenv("SERVER_PORT", _default_config.server_port)):
         """Start Streamable HTTP transport mode"""
         self.logger.info(f"Starting Doris MCP Server (Streamable HTTP mode) - {host}:{port}")
 
@@ -251,9 +255,9 @@ class DorisServer:
             from collections.abc import AsyncIterator
             from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
             from starlette.applications import Starlette
-            from starlette.routing import Mount, Route
+            from starlette.routing import Route
             from starlette.responses import JSONResponse, Response
-            from starlette.types import Receive, Scope, Send
+            from starlette.types import Scope
             
             # Create session manager
             session_manager = StreamableHTTPSessionManager(
@@ -413,34 +417,34 @@ Examples:
         "--transport",
         type=str,
         choices=["stdio", "http"],
-        default="stdio",
-        help="Transport protocol type: stdio (local), http (Streamable HTTP)",
+        default=os.getenv("TRANSPORT", _default_config.transport),
+        help=f"Transport protocol type: stdio (local), http (Streamable HTTP) (default: {_default_config.transport})",
     )
 
     parser.add_argument(
         "--host",
         type=str,
-        default="localhost",
-        help="Host address for HTTP mode (default: localhost)",
+        default=os.getenv("SERVER_HOST", _default_config.database.host),
+        help=f"Host address for HTTP mode (default: {_default_config.database.host})",
     )
 
     parser.add_argument(
-        "--port", type=int, default=3000, help="Port number for HTTP mode (default: 3000)"
+        "--port", type=int, default=os.getenv("SERVER_PORT", _default_config.server_port), help=f"Port number for HTTP mode (default: {_default_config.server_port})"
     )
 
     parser.add_argument(
         "--db-host",
         type=str,
-        default="localhost",
-        help="Doris database host address (default: localhost)",
+        default=os.getenv("DB_HOST", _default_config.database.host),
+        help=f"Doris database host address (default: {_default_config.database.host})",
     )
 
     parser.add_argument(
-        "--db-port", type=int, default=9030, help="Doris database port number (default: 9030)"
+        "--db-port", type=int, default=os.getenv("DB_PORT", _default_config.database.port), help=f"Doris database port number (default: {_default_config.database.port})"
     )
 
     parser.add_argument(
-        "--db-user", type=str, default="root", help="Doris database username (default: root)"
+        "--db-user", type=str, default=os.getenv("DB_USER", _default_config.database.user), help=f"Doris database username (default: {_default_config.database.user})"
     )
 
     parser.add_argument("--db-password", type=str, default="", help="Doris database password")
@@ -448,16 +452,16 @@ Examples:
     parser.add_argument(
         "--db-database",
         type=str,
-        default="information_schema",
-        help="Doris database name (default: information_schema)",
+        default=os.getenv("DB_DATABASE", _default_config.database.database),
+        help=f"Doris database name (default: {_default_config.database.database})",
     )
 
     parser.add_argument(
         "--log-level",
         type=str,
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        default="INFO",
-        help="Log level (default: INFO)",
+        default=os.getenv("LOG_LEVEL", _default_config.logging.level),
+        help=f"Log level (default: {_default_config.logging.level})",
     )
 
     return parser
@@ -475,17 +479,17 @@ async def main():
     config = DorisConfig.from_env()  # First load from .env file and environment variables
     
     # Command line arguments override configuration (if provided)
-    if args.db_host != "localhost":  # If not default value, use command line argument
+    if args.db_host != _default_config.database.host:  # If not default value, use command line argument
         config.database.host = args.db_host
-    if args.db_port != 9030:
+    if args.db_port != _default_config.database.port:
         config.database.port = args.db_port
-    if args.db_user != "root":
+    if args.db_user != _default_config.database.user:
         config.database.user = args.db_user
     if args.db_password:  # Use password if provided
         config.database.password = args.db_password
-    if args.db_database != "information_schema":
+    if args.db_database != _default_config.database.database:
         config.database.database = args.db_database
-    if args.log_level != "INFO":
+    if args.log_level != _default_config.logging.level:
         config.logging.level = args.log_level
 
     # Create server instance

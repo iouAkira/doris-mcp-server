@@ -137,10 +137,18 @@ class DorisConnection:
     async def ping(self) -> bool:
         """Check connection health status"""
         try:
+            # Check if connection exists and is not closed
+            if not self.connection or self.connection.closed:
+                self.is_healthy = False
+                return False
+            
+            # Try to ping the connection
             await self.connection.ping()
             self.is_healthy = True
             return True
-        except Exception:
+        except Exception as e:
+            # Log the specific error for debugging
+            logging.debug(f"Connection ping failed for session {self.session_id}: {e}")
             self.is_healthy = False
             return False
 
@@ -181,7 +189,17 @@ class DorisConnectionManager:
     async def initialize(self):
         """Initialize connection manager"""
         try:
-            # Create connection pool
+            self.logger.info(f"Initializing connection pool to {self.config.database.host}:{self.config.database.port}")
+            
+            # Validate configuration
+            if not self.config.database.host:
+                raise ValueError("Database host is required")
+            if not self.config.database.user:
+                raise ValueError("Database user is required")
+            if not self.config.database.password:
+                self.logger.warning("Database password is empty, this may cause connection issues")
+            
+            # Create connection pool with additional parameters for stability
             self.pool = await aiomysql.create_pool(
                 host=self.config.database.host,
                 port=self.config.database.port,
@@ -193,7 +211,14 @@ class DorisConnectionManager:
                 maxsize=self.config.database.max_connections or 20,
                 autocommit=True,
                 connect_timeout=self.connection_timeout,
+                # Additional parameters for stability
+                pool_recycle=3600,  # Recycle connections every hour
+                echo=False,  # Don't echo SQL statements
             )
+
+            # Test the connection pool
+            if not await self.test_connection():
+                raise RuntimeError("Connection pool test failed")
 
             self.logger.info(
                 f"Connection pool initialized successfully, min connections: {self.config.database.min_connections}, "
@@ -206,6 +231,14 @@ class DorisConnectionManager:
 
         except Exception as e:
             self.logger.error(f"Connection pool initialization failed: {e}")
+            # Clean up partial initialization
+            if self.pool:
+                try:
+                    self.pool.close()
+                    await self.pool.wait_closed()
+                except Exception:
+                    pass
+                self.pool = None
             raise
 
     async def get_connection(self, session_id: str) -> DorisConnection:
@@ -235,8 +268,23 @@ class DorisConnectionManager:
             # Get connection from pool
             raw_connection = await self.pool.acquire()
             
+            # Validate the raw connection
+            if not raw_connection:
+                raise RuntimeError(f"Failed to acquire connection from pool for session {session_id}")
+            
+            # Verify the connection is not closed
+            if raw_connection.closed:
+                raise RuntimeError(f"Acquired connection is already closed for session {session_id}")
+            
             # Create wrapped connection
             doris_conn = DorisConnection(raw_connection, session_id, self.security_manager)
+            
+            # Test the connection before storing it
+            if not await doris_conn.ping():
+                # If ping fails, release the connection and raise error
+                if self.pool and raw_connection and not raw_connection.closed:
+                    self.pool.release(raw_connection)
+                raise RuntimeError(f"New connection failed ping test for session {session_id}")
             
             # Store in session connections
             self.session_connections[session_id] = doris_conn

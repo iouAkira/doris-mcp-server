@@ -41,8 +41,8 @@ class DatabaseConfig:
     port: int = 9030
     user: str = "root"
     password: str = ""
-    database: str = "test"
-    charset: str = "utf8mb4"
+    database: str = "information_schema"
+    charset: str = "UTF8"
 
     # Connection pool configuration
     min_connections: int = 5
@@ -125,11 +125,11 @@ class MonitoringConfig:
 
     # Metrics collection configuration
     enable_metrics: bool = True
-    metrics_port: int = 8081
+    metrics_port: int = 3001
     metrics_path: str = "/metrics"
 
     # Health check configuration
-    health_check_port: int = 8082
+    health_check_port: int = 3002
     health_check_path: str = "/health"
 
     # Alert configuration
@@ -143,8 +143,9 @@ class DorisConfig:
 
     # Basic configuration
     server_name: str = "doris-mcp-server"
-    server_version: str = "1.0.0"
-    server_port: int = 8080
+    server_version: str = "0.3.0"
+    server_port: int = 3000
+    transport: str = "stdio"
 
     # Sub-configuration modules
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
