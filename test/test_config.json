@@ -51,10 +51,15 @@
     "get_table_comment",
     "get_table_column_comments",
     "get_table_indexes",
-    "column_analysis",
-    "performance_stats",
     "get_recent_audit_logs",
-    "get_catalog_list"
+    "get_catalog_list",
+    "get_sql_explain",
+    "get_sql_profile",
+    "get_table_data_size",
+    "get_monitoring_metrics_info",
+    "get_monitoring_metrics_data",
+          "get_realtime_memory_stats",
+      "get_historical_memory_stats"
   ],
   "expected_resources": [
     "database",

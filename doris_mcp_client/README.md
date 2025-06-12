@@ -133,9 +133,6 @@ async def database_operations(client):
     
     # Get table schema
     schema = await client.get_table_schema("table_name", "db_name")
-    
-    # Column data analysis
-    analysis = await client.analyze_column("table", "column", "basic")
 ```
 
 ## 🧪 Testing
@@ -177,7 +174,6 @@ python test_unified_client.py benchmark
   2. get_table_list: Get table list for specified database
   3. get_table_schema: Get table structure information
   4. exec_query: Execute SQL query
-  5. column_analysis: Analyze column data distribution and statistics
   ...
 
 🧪 Testing basic functionality...
@@ -189,8 +185,6 @@ python test_unified_client.py benchmark
    ✅ SSB query successful
 4️⃣ Getting table structure...
    ✅ Table structure retrieved successfully
-5️⃣ Column data analysis...
-   ✅ Column analysis successful
 
 ✅ HTTP mode testing completed!
 ```
@@ -255,12 +249,6 @@ async def comprehensive_example():
         # Get table schema
         schema_result = await client.get_table_schema("lineorder", "ssb")
         print(f"Table schema: {schema_result}")
-        
-        # Column analysis
-        analysis_result = await client.analyze_column(
-            "lineorder", "lo_orderkey", "basic"
-        )
-        print(f"Column analysis: {analysis_result}")
     
     await client.connect_and_run(demo_operations)
 

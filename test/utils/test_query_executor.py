@@ -35,11 +35,6 @@ class TestDorisQueryExecutor:
         from doris_mcp_server.utils.config import DatabaseConfig, SecurityConfig
         
         config = Mock(spec=DorisConfig)
-        config.doris_host = "localhost"
-        config.doris_port = 9030
-        config.doris_user = "test_user"
-        config.doris_password = "test_password"
-        config.doris_database = "test_db"
         
         # Add database config
         config.database = Mock(spec=DatabaseConfig)
@@ -53,6 +48,13 @@ class TestDorisQueryExecutor:
         config.database.max_connections = 20
         config.database.connection_timeout = 30
         config.database.max_connection_age = 3600
+        
+        # Add security config
+        config.security = Mock(spec=SecurityConfig)
+        config.security.enable_masking = True
+        config.security.auth_type = "token"
+        config.security.token_secret = "test_secret"
+        config.security.token_expiry = 3600
         
         return config
 
