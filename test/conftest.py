@@ -47,22 +47,30 @@ def event_loop():
 
 @pytest.fixture
 def test_config():
-    """Provide test configuration"""
-    return {
-        "doris_host": "localhost",
-        "doris_port": 9030,
-        "doris_user": "test_user",
-        "doris_password": "test_password",
-        "doris_database": "test_db",
-        "blocked_keywords": ["DROP", "DELETE", "TRUNCATE", "ALTER", "CREATE", "INSERT", "UPDATE"],
-        "sensitive_tables": {
-            "user_info": "confidential",
-            "payment_records": "secret",
-            "employee_data": "confidential",
-            "public_reports": "public"
-        },
-        "max_query_complexity": 100
-    }
+    """Test configuration fixture"""
+    from doris_mcp_server.utils.config import DorisConfig, DatabaseConfig, SecurityConfig
+    
+    config = DorisConfig()
+    
+    # Database configuration
+    config.database.host = "localhost"
+    config.database.port = 9030
+    config.database.user = "test_user"
+    config.database.password = "test_password"
+    config.database.database = "test_db"
+    config.database.health_check_interval = 60
+    config.database.min_connections = 5
+    config.database.max_connections = 20
+    config.database.connection_timeout = 30
+    config.database.max_connection_age = 3600
+    
+    # Security configuration
+    config.security.enable_masking = True
+    config.security.auth_type = "token"
+    config.security.token_secret = "test_secret"
+    config.security.token_expiry = 3600
+    
+    return config
 
 
 @pytest.fixture

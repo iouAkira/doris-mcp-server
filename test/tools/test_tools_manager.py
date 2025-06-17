@@ -36,11 +36,6 @@ class TestDorisToolsManager:
         from doris_mcp_server.utils.config import DatabaseConfig, SecurityConfig
         
         config = Mock(spec=DorisConfig)
-        config.doris_host = "localhost"
-        config.doris_port = 9030
-        config.doris_user = "test_user"
-        config.doris_password = "test_password"
-        config.doris_database = "test_db"
         
         # Add database config
         config.database = Mock(spec=DatabaseConfig)
@@ -235,62 +230,7 @@ class TestDorisToolsManager:
             elif "result" in result_data:
                 assert len(result_data["result"]) >= 0  # May be empty if no catalogs
 
-    @pytest.mark.asyncio
-    async def test_column_analysis_tool(self, tools_manager):
-        """Test column_analysis tool"""
-        with patch.object(tools_manager.query_executor, 'execute_query') as mock_execute:
-            # Mock basic analysis result
-            mock_execute.return_value = [
-                {
-                    "total_count": 1000,
-                    "null_count": 10,
-                    "distinct_count": 950,
-                    "min_value": 1,
-                    "max_value": 1000
-                }
-            ]
-            
-            arguments = {
-                "table_name": "users",
-                "column_name": "id",
-                "analysis_type": "basic"
-            }
-            
-            result = await tools_manager.call_tool("column_analysis", arguments)
-            result_data = json.loads(result) if isinstance(result, str) else result
-            
-            # Check if result has analysis field or result field
-            if "analysis" in result_data:
-                assert result_data["analysis"]["total_count"] == 1000
-            elif "result" in result_data:
-                assert "result" in result_data  # Just check result exists
 
-    @pytest.mark.asyncio
-    async def test_performance_stats_tool(self, tools_manager):
-        """Test performance_stats tool"""
-        with patch.object(tools_manager.query_executor, 'execute_query') as mock_execute:
-            mock_execute.return_value = [
-                {
-                    "query_count": 1500,
-                    "avg_execution_time": 0.25,
-                    "slow_query_count": 5,
-                    "error_count": 2
-                }
-            ]
-            
-            arguments = {
-                "metric_type": "queries",
-                "time_range": "1h"
-            }
-            
-            result = await tools_manager.call_tool("performance_stats", arguments)
-            result_data = json.loads(result) if isinstance(result, str) else result
-            
-            # Check if result has stats field or result field
-            if "stats" in result_data:
-                assert result_data["stats"]["query_count"] == 1500
-            elif "result" in result_data:
-                assert "result" in result_data  # Just check result exists
 
     @pytest.mark.asyncio
     async def test_invalid_tool_name(self, tools_manager):

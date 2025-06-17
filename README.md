@@ -21,36 +21,34 @@ under the License.
 
 Doris MCP (Model Context Protocol) Server is a backend service built with Python and FastAPI. It implements the MCP, allowing clients to interact with it through defined "Tools". It's primarily designed to connect to Apache Doris databases, potentially leveraging Large Language Models (LLMs) for tasks like converting natural language queries to SQL (NL2SQL), executing queries, and performing metadata management and analysis.
 
-## 🚀 What's New in v0.3.0
+## 🚀 What's New in v0.4.0
 
-- **🔄 Streamlined Communication**: Completely migrated from SSE to Streamable HTTP for better performance and reliability
-- **🏗️ Unified Architecture**: Consolidated tools management with centralized registration and routing
-- **⚡ Enhanced Performance**: Improved query execution with advanced caching and optimization
-- **🔒 Enterprise Security**: Added comprehensive security management with SQL validation and data masking
-- **📊 Advanced Analytics**: New column analysis and performance monitoring tools
-- **🛠️ Simplified Development**: Streamlined tool development process with unified interfaces
+- **🛠️ Enhanced Monitoring Tools Module**: Advanced memory tracking, metrics collection, and BE node discovery with modular, extensible design
+- **🔍 Mature Query Information Tools**: Enhanced SQL explain and profiling with configurable content truncation, file export for LLM attachments, and advanced query analytics
+- **⚙️ Unified Configuration Framework**: Centralized configuration management through `config.py` with comprehensive validation and standardized parameter naming
+- **🗃️ Smart Default Database Handling**: Automatic fallback to `information_schema` database, eliminating startup configuration requirements and improving reliability
+- **🗑️ Production-Ready Architecture**: Removed experimental tools in favor of battle-tested, production-ready alternatives with better performance and monitoring
 
-> **⚠️ Breaking Changes**: SSE endpoints have been removed. Please update your client configurations to use Streamable HTTP (`/mcp` endpoint).
+> **⚠️ Breaking Changes**: Experimental tools (`column_analysis`, `performance_stats`) have been removed and replaced with enhanced monitoring and query information tools.
 
 ## Core Features
 
 *   **MCP Protocol Implementation**: Provides standard MCP interfaces, supporting tool calls, resource management, and prompt interactions.
-*   **Multiple Communication Modes** (Updated in v0.3.0):
-    *   **Stdio**: Standard input/output mode for direct integration with MCP clients like Cursor.
-    *   **Streamable HTTP**: Unified HTTP endpoint supporting request/response and streaming (Primary mode since v0.3.0).
-    
-    > **⚠️ Breaking Change in v0.3.0**: SSE (Server-Sent Events) mode has been completely removed in favor of the more robust Streamable HTTP implementation.
+*   **Streamable HTTP Communication**: Unified HTTP endpoint supporting both request/response and streaming communication for optimal performance and reliability.
+*   **Stdio Communication**: Standard input/output mode for direct integration with MCP clients like Cursor.
 *   **Enterprise-Grade Architecture**: Modular design with comprehensive functionality:
-    *   **Tools Manager**: Centralized tool registration and routing (`doris_mcp_server/tools/tools_manager.py`)
+    *   **Tools Manager**: Centralized tool registration and routing with unified interfaces (`doris_mcp_server/tools/tools_manager.py`)
+    *   **Enhanced Monitoring Tools Module**: Advanced memory tracking, metrics collection, and flexible BE node discovery (Enhanced in v0.4.0)
+    *   **Query Information Tools**: Enhanced SQL explain and profiling with configurable content management and LLM file export capabilities (Enhanced in v0.4.0)
     *   **Resources Manager**: Resource management and metadata exposure (`doris_mcp_server/tools/resources_manager.py`)
     *   **Prompts Manager**: Intelligent prompt templates for data analysis (`doris_mcp_server/tools/prompts_manager.py`)
 *   **Advanced Database Features**:
-    *   **Query Execution**: High-performance SQL execution with caching and optimization (`doris_mcp_server/utils/query_executor.py`)
-    *   **Security Management**: SQL security validation, data masking, and access control (`doris_mcp_server/utils/security.py`)
+    *   **Query Execution**: High-performance SQL execution with advanced caching and optimization (`doris_mcp_server/utils/query_executor.py`)
+    *   **Security Management**: Comprehensive SQL security validation, data masking, and access control (`doris_mcp_server/utils/security.py`)
     *   **Metadata Extraction**: Comprehensive database metadata with catalog federation support (`doris_mcp_server/utils/schema_extractor.py`)
-    *   **Performance Analysis**: Column statistics, performance monitoring, and data analysis tools (`doris_mcp_server/utils/analysis_tools.py`)
+    *   **Performance Analysis**: Advanced column analysis, performance monitoring, and data analysis tools (`doris_mcp_server/utils/analysis_tools.py`)
 *   **Catalog Federation Support**: Full support for multi-catalog environments (internal Doris tables and external data sources like Hive, MySQL, etc.)
-*   **Enterprise Security**: Comprehensive security framework with authentication, authorization, SQL injection protection, and data masking (`doris_mcp_server/utils/security.py`)
+*   **Enterprise Security**: Comprehensive security framework with authentication, authorization, SQL injection protection, and data masking capabilities (`doris_mcp_server/utils/security.py`)
 *   **Flexible Configuration**: Comprehensive configuration management with environment variables, file-based config, and validation (`doris_mcp_server/utils/config.py`)
 
 ## System Requirements
@@ -67,12 +65,14 @@ Doris MCP (Model Context Protocol) Server is a backend service built with Python
 pip install mcp-doris-server
 
 # Install specific version
-pip install mcp-doris-server==0.3
+pip install mcp-doris-server==0.4.0
 ```
 
 > **💡 Command Compatibility**: After installation, both `doris-mcp-server` and `mcp-doris-server` commands are available for backward compatibility. You can use either command interchangeably.
 
 ### Start Streamable HTTP Mode (Web Service)
+
+The primary communication mode offering optimal performance and reliability:
 
 ```bash
 # Full configuration with database connection
@@ -87,6 +87,8 @@ doris-mcp-server \
 ```
 
 ### Start Stdio Mode (for Cursor and other MCP clients)
+
+Standard input/output mode for direct integration with MCP clients:
 
 ```bash
 # For direct integration with MCP clients like Cursor
@@ -164,9 +166,11 @@ cp .env.example .env
     *   `DORIS_PORT`: Database port (default: 9030)
     *   `DORIS_USER`: Database username (default: root)
     *   `DORIS_PASSWORD`: Database password
-    *   `DORIS_DATABASE`: Default database name (default: test)
+    *   `DORIS_DATABASE`: Default database name (default: information_schema)
     *   `DORIS_MIN_CONNECTIONS`: Minimum connection pool size (default: 5)
     *   `DORIS_MAX_CONNECTIONS`: Maximum connection pool size (default: 20)
+    *   `DORIS_BE_HOSTS`: BE nodes for monitoring (comma-separated, optional - auto-discovery via SHOW BACKENDS if empty)
+    *   `DORIS_BE_WEBSERVER_PORT`: BE webserver port for monitoring tools (default: 8040)
 *   **Security Configuration**:
     *   `AUTH_TYPE`: Authentication type (token/basic/oauth, default: token)
     *   `TOKEN_SECRET`: Token secret key
@@ -176,6 +180,7 @@ cp .env.example .env
     *   `ENABLE_QUERY_CACHE`: Enable query caching (default: true)
     *   `CACHE_TTL`: Cache time-to-live in seconds (default: 300)
     *   `MAX_CONCURRENT_QUERIES`: Maximum concurrent queries (default: 50)
+    *   `MAX_RESPONSE_CONTENT_SIZE`: Maximum response content size for LLM compatibility (default: 4096, New in v0.4.0)
 *   **Logging Configuration**:
     *   `LOG_LEVEL`: Log level (DEBUG/INFO/WARNING/ERROR, default: INFO)
     *   `LOG_FILE_PATH`: Log file path
@@ -185,21 +190,26 @@ cp .env.example .env
 
 The following table lists the main tools currently available for invocation via an MCP client:
 
-| Tool Name                   | Description                                                 | Parameters                                                                                                 | Status   |
-|:----------------------------| :---------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------- | :------- |
-| `exec_query`                | Execute SQL query with catalog federation support.          | `sql` (string, Required - MUST use three-part naming), `db_name` (string, Optional), `catalog_name` (string, Optional), `max_rows` (integer, Optional, default 100), `timeout` (integer, Optional, default 30) | ✅ Active |
-| `get_catalog_list`          | Get a list of all catalogs with detailed information.       | `random_string` (string, Required)                                                                         | ✅ Active |
-| `get_db_list`               | Get a list of all database names in the specified catalog.  | `catalog_name` (string, Optional, defaults to internal catalog)                                            | ✅ Active |
-| `get_db_table_list`         | Get a list of all table names in the specified database.    | `db_name` (string, Optional), `catalog_name` (string, Optional)                                            | ✅ Active |
-| `get_table_schema`          | Get detailed structure of the specified table.              | `table_name` (string, Required), `db_name` (string, Optional), `catalog_name` (string, Optional)          | ✅ Active |
-| `get_table_comment`         | Get the comment for the specified table.                    | `table_name` (string, Required), `db_name` (string, Optional), `catalog_name` (string, Optional)          | ✅ Active |
-| `get_table_column_comments` | Get comments for all columns in the specified table.        | `table_name` (string, Required), `db_name` (string, Optional), `catalog_name` (string, Optional)          | ✅ Active |
-| `get_table_indexes`         | Get index information for the specified table.              | `table_name` (string, Required), `db_name` (string, Optional), `catalog_name` (string, Optional)          | ✅ Active |
-| `get_recent_audit_logs`     | Get audit log records for a recent period.                  | `days` (integer, Optional, default 7), `limit` (integer, Optional, default 100)                           | ✅ Active |
-| `column_analysis`           | Analyze statistical information and data distribution.       | `table_name` (string, Required), `column_name` (string, Required), `analysis_type` (string, Optional: basic/distribution/detailed) | ⚠️ Experimental |
-| `performance_stats`         | Get database performance statistics information.             | `metric_type` (string, Optional: queries/connections/tables/system), `time_range` (string, Optional: 1h/6h/24h/7d) | ⚠️ Experimental |
+| Tool Name                   | Description                                                  | Parameters                                                   |
+|-----------------------------|--------------------------------------------------------------|--------------------------------------------------------------|
+| `exec_query`                | Execute SQL query and return results.                       | `sql` (string, Required), `db_name` (string, Optional), `catalog_name` (string, Optional), `max_rows` (integer, Optional), `timeout` (integer, Optional) |
+| `get_table_schema`          | Get detailed table structure information.                   | `table_name` (string, Required), `db_name` (string, Optional), `catalog_name` (string, Optional) |
+| `get_db_table_list`         | Get list of all table names in specified database.         | `db_name` (string, Optional), `catalog_name` (string, Optional) |
+| `get_db_list`               | Get list of all database names.                             | `catalog_name` (string, Optional)                           |
+| `get_table_comment`         | Get table comment information.                              | `table_name` (string, Required), `db_name` (string, Optional), `catalog_name` (string, Optional) |
+| `get_table_column_comments` | Get comment information for all columns in table.          | `table_name` (string, Required), `db_name` (string, Optional), `catalog_name` (string, Optional) |
+| `get_table_indexes`         | Get index information for specified table.                  | `table_name` (string, Required), `db_name` (string, Optional), `catalog_name` (string, Optional) |
+| `get_recent_audit_logs`     | Get audit log records for recent period.                    | `days` (integer, Optional), `limit` (integer, Optional)     |
+| `get_catalog_list`          | Get list of all catalog names.                              | `random_string` (string, Required)                          |
+| `get_sql_explain`           | Get SQL execution plan with configurable content truncation and file export for LLM analysis.               | `sql` (string, Required), `verbose` (boolean, Optional), `db_name` (string, Optional), `catalog_name` (string, Optional) |
+| `get_sql_profile`           | Get SQL execution profile with content management and file export for LLM optimization workflows.                  | `sql` (string, Required), `db_name` (string, Optional), `catalog_name` (string, Optional), `timeout` (integer, Optional) |
+| `get_table_data_size`       | Get table data size information via FE HTTP API.           | `db_name` (string, Optional), `table_name` (string, Optional), `single_replica` (boolean, Optional) |
+| `get_monitoring_metrics_info` | Get Doris monitoring metrics definitions and descriptions. | `role` (string, Optional), `monitor_type` (string, Optional), `priority` (string, Optional) |
+| `get_monitoring_metrics_data` | Get actual Doris monitoring metrics data from nodes with flexible BE discovery.      | `role` (string, Optional), `monitor_type` (string, Optional), `priority` (string, Optional) |
+| `get_realtime_memory_stats` | Get real-time memory statistics via BE Memory Tracker with auto/manual BE discovery.     | `tracker_type` (string, Optional), `include_details` (boolean, Optional) |
+| `get_historical_memory_stats` | Get historical memory statistics via BE Bvar interface with flexible BE configuration.   | `tracker_names` (array, Optional), `time_range` (string, Optional) |
 
-**Note:** All metadata tools support catalog federation for multi-catalog environments. The `get_catalog_list` tool requires a `random_string` parameter for compatibility reasons.
+**Note:** All metadata tools support catalog federation for multi-catalog environments. The `get_catalog_list` tool requires a `random_string` parameter for compatibility reasons. Enhanced monitoring tools in v0.4.0 provide comprehensive memory tracking and metrics collection capabilities with flexible BE node discovery.
 
 ### 4. Run the Service
 
@@ -211,19 +221,19 @@ Execute the following command to start the server:
 
 This command starts the FastAPI application with Streamable HTTP MCP service.
 
-**Service Endpoints (v0.3.0+):**
+**Service Endpoints:**
 
 *   **Streamable HTTP**: `http://<host>:<port>/mcp` (Primary MCP endpoint - supports GET, POST, DELETE, OPTIONS)
 *   **Health Check**: `http://<host>:<port>/health`
 *   **Status Check**: `http://<host>:<port>/status`
 
-> **Note**: Starting from v0.3.0, only Streamable HTTP mode is supported for web-based communication. SSE endpoints have been removed.
+> **Note**: The server uses Streamable HTTP for web-based communication, providing unified request/response and streaming capabilities.
 
 ## Usage
 
 Interaction with the Doris MCP Server requires an **MCP Client**. The client connects to the server's Streamable HTTP endpoint and sends requests according to the MCP specification to invoke the server's tools.
 
-**Main Interaction Flow (v0.3.0+):**
+**Main Interaction Flow:**
 
 1.  **Client Initialization**: Send an `initialize` method call to `/mcp` (Streamable HTTP).
 2.  **(Optional) Discover Tools**: The client can call `tools/list` to get the list of supported tools, their descriptions, and parameter schemas.
@@ -234,8 +244,6 @@ Interaction with the Doris MCP Server requires an **MCP Client**. The client con
 4.  **Handle Response**:
     *   **Non-streaming**: The client receives a response containing `content` or `isError`.
     *   **Streaming**: The client receives a series of progress notifications, followed by a final response.
-
-> **Migration Note**: If you're upgrading from v0.2.x, note that tool names have been simplified (removed `mcp_doris_` prefix) and the communication protocol has been updated to use Streamable HTTP exclusively.
 
 ### Catalog Federation Support
 
@@ -305,7 +313,7 @@ The Doris MCP Server supports **catalog federation**, enabling interaction with 
     }
     ```
 
-## Security Configuration (v0.3.0+)
+## Security Configuration
 
 The Doris MCP Server includes a comprehensive security framework that provides enterprise-level protection through authentication, authorization, SQL security validation, and data masking capabilities.
 
@@ -612,7 +620,7 @@ uv run --project /path/to/doris-mcp-server doris-mcp-server
 }
 ```
 
-### Streamable HTTP Mode (v0.3.0+)
+### Streamable HTTP Mode
 
 Streamable HTTP mode requires you to run the MCP server independently first, and then configure Cursor to connect to it.
 
@@ -634,11 +642,9 @@ Streamable HTTP mode requires you to run the MCP server independently first, and
     }
     ```
     
-    > **Note**: Adjust the host/port if your server runs on a different address. The `/mcp` endpoint is the unified Streamable HTTP interface introduced in v0.3.0.
+    > **Note**: Adjust the host/port if your server runs on a different address. The `/mcp` endpoint is the unified Streamable HTTP interface.
 
 After configuring either mode in Cursor, you should be able to select the server (e.g., `doris-stdio` or `doris-http`) and use its tools.
-
-> **⚠️ Migration from v0.2.x**: If you were using SSE mode (`/sse` endpoint), update your configuration to use the new Streamable HTTP endpoint (`/mcp`).
 
 ## Directory Structure
 
@@ -678,22 +684,22 @@ doris-mcp-server/
 
 ## Developing New Tools
 
-This section outlines the process for adding new MCP tools to the Doris MCP Server, based on the current modular architecture.
+This section outlines the process for adding new MCP tools to the Doris MCP Server, based on the unified modular architecture with centralized tool management.
 
 ### 1. Leverage Existing Utility Modules
 
 The server provides comprehensive utility modules for common database operations:
 
 *   **`doris_mcp_server/utils/db.py`**: Database connection management with connection pooling and health monitoring.
-*   **`doris_mcp_server/utils/query_executor.py`**: High-performance SQL execution with caching, optimization, and performance monitoring.
+*   **`doris_mcp_server/utils/query_executor.py`**: High-performance SQL execution with advanced caching, optimization, and performance monitoring.
 *   **`doris_mcp_server/utils/schema_extractor.py`**: Metadata extraction with full catalog federation support.
-*   **`doris_mcp_server/utils/security.py`**: Security management, SQL validation, and data masking.
-*   **`doris_mcp_server/utils/analysis_tools.py`**: Data analysis and statistical tools.
+*   **`doris_mcp_server/utils/security.py`**: Comprehensive security management, SQL validation, and data masking.
+*   **`doris_mcp_server/utils/analysis_tools.py`**: Advanced data analysis and statistical tools.
 *   **`doris_mcp_server/utils/config.py`**: Configuration management with validation.
 
 ### 2. Implement Tool Logic
 
-Add your new tool to the `DorisToolsManager` class in `doris_mcp_server/tools/tools_manager.py`. The tools manager provides a centralized approach to tool registration and execution.
+Add your new tool to the `DorisToolsManager` class in `doris_mcp_server/tools/tools_manager.py`. The tools manager provides a centralized approach to tool registration and execution with unified interfaces.
 
 **Example:** Adding a new analysis tool:
 
@@ -762,12 +768,13 @@ async def your_new_analysis_tool_wrapper(arguments: Dict[str, Any]) -> List[Dict
 
 ### 4. Advanced Features
 
-For more complex tools, you can leverage:
+For more complex tools, you can leverage the comprehensive framework:
 
-*   **Caching**: Use the query executor's built-in caching for performance
-*   **Security**: Apply SQL validation and data masking through the security manager
-*   **Prompts**: Use the prompts manager for intelligent query generation
-*   **Resources**: Expose metadata through the resources manager
+*   **Advanced Caching**: Use the query executor's built-in caching for enhanced performance
+*   **Enterprise Security**: Apply comprehensive SQL validation and data masking through the security manager
+*   **Intelligent Prompts**: Use the prompts manager for advanced query generation
+*   **Resource Management**: Expose metadata through the resources manager
+*   **Performance Monitoring**: Integrate with the analysis tools for monitoring capabilities
 
 ### 5. Testing
 
@@ -870,6 +877,48 @@ If you have further requirements for the returned results, you can describe the 
 
 3. **Configuration File**:
    Modify the corresponding configuration items in the `.env` file.
+
+### Q: How to configure BE nodes for monitoring tools?
+
+**A:** Choose the appropriate configuration based on your deployment scenario:
+
+**External Network (Manual Configuration):**
+```bash
+# Manually specify BE node addresses
+DORIS_BE_HOSTS=10.1.1.100,10.1.1.101,10.1.1.102
+DORIS_BE_WEBSERVER_PORT=8040
+```
+
+**Internal Network (Automatic Discovery):**
+```bash
+# Leave BE_HOSTS empty for auto-discovery
+# DORIS_BE_HOSTS=  # Not set or empty
+# System will use 'SHOW BACKENDS' command to get internal IPs
+```
+
+### Q: How to use SQL Explain/Profile files with LLM for optimization?
+
+**A:** The tools provide both truncated content and complete files for LLM analysis:
+
+1. **Get Analysis Results:**
+   ```json
+   {
+     "content": "Truncated plan for immediate review",
+     "file_path": "/tmp/explain_12345.txt",
+     "is_content_truncated": true
+   }
+   ```
+
+2. **LLM Analysis Workflow:**
+   - Review truncated content for quick insights
+   - Upload the complete file to your LLM as an attachment
+   - Request optimization suggestions or performance analysis
+   - Implement recommended improvements
+
+3. **Configure Content Size:**
+   ```bash
+   MAX_RESPONSE_CONTENT_SIZE=4096  # Adjust as needed
+   ```
 
 ### Q: How to enable data security and masking features?
 

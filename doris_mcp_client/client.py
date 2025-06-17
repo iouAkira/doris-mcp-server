@@ -422,18 +422,14 @@ class DorisUnifiedClient:
 
         return await self.call_tool(tool_name, kwargs)
 
-    async def analyze_column(self, table_name: str, column_name: str, analysis_type: str = "basic", **kwargs) -> dict[str, Any]:
-        """Analyze column"""
-        tool_name = await self._find_tool_by_pattern(["column_analysis", "analyze_column", "column"])
+    async def get_memory_stats(self, tracker_type: str = "overview", include_details: bool = True, **kwargs) -> dict[str, Any]:
+        """Get memory statistics"""
+        tool_name = await self._find_tool_by_pattern(["memory", "realtime_memory"])
         if not tool_name:
-            return {"success": False, "error": "Column analysis tool not found"}
-
-        arguments = {
-            "table_name": table_name,
-            "column_name": column_name,
-            "analysis_type": analysis_type,
-            **kwargs
-        }
+            return {"success": False, "error": "Memory stats tool not found"}
+        
+        arguments = {"tracker_type": tracker_type, "include_details": include_details}
+        arguments.update(kwargs)
         return await self.call_tool(tool_name, arguments)
 
     async def call_tool_by_function(self, function_description: str, arguments: dict[str, Any]) -> dict[str, Any]:

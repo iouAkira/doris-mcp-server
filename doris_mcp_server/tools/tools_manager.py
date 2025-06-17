@@ -28,7 +28,8 @@ from mcp.types import Tool
 
 from ..utils.db import DorisConnectionManager
 from ..utils.query_executor import DorisQueryExecutor
-from ..utils.analysis_tools import TableAnalyzer, PerformanceMonitor
+from ..utils.analysis_tools import TableAnalyzer, SQLAnalyzer, MemoryTracker
+from ..utils.monitoring_tools import DorisMonitoringTools
 from ..utils.schema_extractor import MetadataExtractor
 from ..utils.logger import get_logger
 
@@ -45,8 +46,10 @@ class DorisToolsManager:
         # Initialize business logic processors
         self.query_executor = DorisQueryExecutor(connection_manager)
         self.table_analyzer = TableAnalyzer(connection_manager)
-        self.performance_monitor = PerformanceMonitor(connection_manager)
+        self.sql_analyzer = SQLAnalyzer(connection_manager)
         self.metadata_extractor = MetadataExtractor(connection_manager=connection_manager)
+        self.monitoring_tools = DorisMonitoringTools(connection_manager)
+        self.memory_tracker = MemoryTracker(connection_manager)
         
         logger.info("DorisToolsManager initialized with business logic processors")
     
@@ -54,99 +57,6 @@ class DorisToolsManager:
         """Register all tools to MCP server"""
         logger.info("Starting to register MCP tools")
 
-        # Column statistical analysis tool
-        @mcp.tool(
-            "column_analysis",
-            description="""[Function Description]: Analyze statistical information and data distribution of the specified column.
-
-[Parameter Content]:
-
-- table_name (string) [Required] - Name of the table to analyze
-
-- column_name (string) [Required] - Name of the column to analyze
-
-- analysis_type (string) [Optional] - Type of analysis to perform, default is "basic"
-  * "basic": Basic statistics (count, null values, distinct values)
-  * "distribution": Data distribution analysis (frequency, percentiles)
-  * "detailed": Comprehensive analysis including all above plus patterns and outliers
-""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "table_name": {"type": "string", "description": "Table name"},
-                    "column_name": {
-                        "type": "string",
-                        "description": "Column name to analyze",
-                    },
-                    "analysis_type": {
-                        "type": "string",
-                        "enum": ["basic", "distribution", "detailed"],
-                        "description": "Analysis type",
-                        "default": "basic",
-                    },
-                },
-                "required": ["table_name", "column_name"],
-            }
-        )
-        async def column_analysis_tool(
-            table_name: str, 
-            column_name: str, 
-            analysis_type: str = "basic"
-        ) -> str:
-            """Column statistical analysis tool"""
-            return await self.call_tool("column_analysis", {
-                "table_name": table_name,
-                "column_name": column_name,
-                "analysis_type": analysis_type
-            })
-
-        # Database performance monitoring tool
-        @mcp.tool(
-            "performance_stats[Experimental]",
-            description="""[Important]: This tool is experimental and may not be fully functional!
-[Function Description]: Get database performance statistics information.
-
-[Parameter Content]:
-
-- metric_type (string) [Optional] - Type of performance metrics to retrieve, default is "queries"
-  * "queries": Query performance metrics (execution time, frequency, etc.)
-  * "connections": Connection statistics (active connections, connection pool status)
-  * "tables": Table-level statistics (size, row count, access patterns)
-  * "system": System-level metrics (CPU, memory, disk usage)
-
-- time_range (string) [Optional] - Time range for statistics, default is "1h"
-  * "1h": Last 1 hour
-  * "6h": Last 6 hours
-  * "24h": Last 24 hours
-  * "7d": Last 7 days
-""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "metric_type": {
-                        "type": "string",
-                        "enum": ["queries", "connections", "tables", "system"],
-                        "description": "Performance metric type",
-                        "default": "queries",
-                    },
-                    "time_range": {
-                        "type": "string",
-                        "enum": ["1h", "6h", "24h", "7d"],
-                        "description": "Time range",
-                        "default": "1h",
-                    },
-                },
-            }
-        )
-        async def performance_stats_tool(
-            metric_type: str = "queries", 
-            time_range: str = "1h"
-        ) -> str:
-            """Database performance monitoring tool"""
-            return await self.call_tool("performance_stats", {
-                "metric_type": metric_type,
-                "time_range": time_range
-            })
         
         # SQL query execution tool (supports catalog federation queries)
         @mcp.tool(
@@ -352,81 +262,227 @@ class DorisToolsManager:
                 "random_string": random_string
             })
 
-        logger.info("Successfully registered 11 tools to MCP server (2 core tools + 9 migrated tools)")
+        # SQL Explain tool
+        @mcp.tool(
+            "get_sql_explain",
+            description="""[Function Description]: Get SQL execution plan using EXPLAIN command based on Doris syntax.
+
+[Parameter Content]:
+
+- sql (string) [Required] - SQL statement to explain
+
+- verbose (boolean) [Optional] - Whether to show verbose information, default is false
+
+- db_name (string) [Optional] - Target database name, defaults to the current database
+
+- catalog_name (string) [Optional] - Target catalog name for federation queries, defaults to current catalog
+""",
+        )
+        async def get_sql_explain_tool(
+            sql: str,
+            verbose: bool = False,
+            db_name: str = None,
+            catalog_name: str = None
+        ) -> str:
+            """Get SQL execution plan"""
+            return await self.call_tool("get_sql_explain", {
+                "sql": sql,
+                "verbose": verbose,
+                "db_name": db_name,
+                "catalog_name": catalog_name
+            })
+
+        # SQL Profile tool
+        @mcp.tool(
+            "get_sql_profile",
+            description="""[Function Description]: Get SQL execution profile by setting trace ID and fetching profile via FE HTTP API.
+
+[Parameter Content]:
+
+- sql (string) [Required] - SQL statement to profile
+
+- db_name (string) [Optional] - Target database name, defaults to the current database
+
+- catalog_name (string) [Optional] - Target catalog name for federation queries, defaults to current catalog
+
+- timeout (integer) [Optional] - Query timeout in seconds, default is 30
+""",
+        )
+        async def get_sql_profile_tool(
+            sql: str,
+            db_name: str = None,
+            catalog_name: str = None,
+            timeout: int = 30
+        ) -> str:
+            """Get SQL execution profile"""
+            return await self.call_tool("get_sql_profile", {
+                "sql": sql,
+                "db_name": db_name,
+                "catalog_name": catalog_name,
+                "timeout": timeout
+            })
+
+        # Table data size tool
+        @mcp.tool(
+            "get_table_data_size",
+            description="""[Function Description]: Get table data size information via FE HTTP API.
+
+[Parameter Content]:
+
+- db_name (string) [Optional] - Database name, if not specified returns all databases
+
+- table_name (string) [Optional] - Table name, if not specified returns all tables in the database
+
+- single_replica (boolean) [Optional] - Whether to get single replica data size, default is false
+""",
+        )
+        async def get_table_data_size_tool(
+            db_name: str = None,
+            table_name: str = None, 
+            single_replica: bool = False
+        ) -> str:
+            """Get table data size information"""
+            return await self.call_tool("get_table_data_size", {
+                "db_name": db_name,
+                "table_name": table_name,
+                "single_replica": single_replica
+            })
+
+        # Monitoring metrics definition tool
+        @mcp.tool(
+            "get_monitoring_metrics_info",
+            description="""[Function Description]: Get Doris monitoring metrics definitions and descriptions without executing queries.
+
+[Parameter Content]:
+
+- role (string) [Optional] - Node role to get metric definitions for, default is "all"
+  * "fe": Only FE metrics definitions
+  * "be": Only BE metrics definitions  
+  * "all": Both FE and BE metrics definitions
+
+- monitor_type (string) [Optional] - Type of monitoring metrics, default is "all"
+  * "process": Process monitoring metrics
+  * "jvm": JVM monitoring metrics (FE only)
+  * "machine": Machine monitoring metrics
+  * "all": All monitoring types
+
+- priority (string) [Optional] - Metric priority level, default is "core"
+  * "core": Only core essential metrics (10-12 items for production use)
+  * "p0": Only P0 (highest priority) metrics definitions
+  * "all": All metrics definitions (P0 and non-P0)
+""",
+        )
+        async def get_monitoring_metrics_info_tool(
+            role: str = "all",
+            monitor_type: str = "all",
+            priority: str = "core"
+        ) -> str:
+            """Get Doris monitoring metrics definitions"""
+            return await self.call_tool("get_monitoring_metrics_info", {
+                "role": role,
+                "monitor_type": monitor_type,
+                "priority": priority
+            })
+
+        # Monitoring metrics data tool
+        @mcp.tool(
+            "get_monitoring_metrics_data",
+            description="""[Function Description]: Get actual Doris monitoring metrics data from FE and BE nodes via HTTP API.
+
+[Parameter Content]:
+
+- role (string) [Optional] - Node role to monitor, default is "all"
+  * "fe": Only FE nodes
+  * "be": Only BE nodes  
+  * "all": Both FE and BE nodes
+
+- monitor_type (string) [Optional] - Type of monitoring metrics, default is "all"
+  * "process": Process monitoring metrics
+  * "jvm": JVM monitoring metrics (FE only)
+  * "machine": Machine monitoring metrics
+  * "all": All monitoring types
+
+- priority (string) [Optional] - Metric priority level, default is "core"
+  * "core": Only core essential metrics (10-12 items for production use)
+  * "p0": Only P0 (highest priority) metrics
+  * "all": All metrics (P0 and non-P0)
+
+- include_raw_metrics (boolean) [Optional] - Whether to include raw detailed metrics data (can be very large)
+""",
+        )
+        async def get_monitoring_metrics_data_tool(
+            role: str = "all",
+            monitor_type: str = "all",
+            priority: str = "core",
+            include_raw_metrics: bool = False
+        ) -> str:
+            """Get Doris monitoring metrics data"""
+            return await self.call_tool("get_monitoring_metrics_data", {
+                "role": role,
+                "monitor_type": monitor_type,
+                "priority": priority,
+                "include_raw_metrics": include_raw_metrics
+            })
+
+        # Real-time memory tracker tool
+        @mcp.tool(
+            "get_realtime_memory_stats",
+            description="""[Function Description]: Get real-time memory statistics via Doris BE Memory Tracker web interface.
+
+[Parameter Content]:
+
+- tracker_type (string) [Optional] - Type of memory trackers to retrieve, default is "overview"
+  * "overview": Overview type trackers (process memory, tracked memory summary)
+  * "global": Global shared memory trackers (cache, metadata)
+  * "query": Query-related memory trackers
+  * "load": Load-related memory trackers  
+  * "compaction": Compaction-related memory trackers
+  * "all": All memory tracker types
+
+- include_details (boolean) [Optional] - Whether to include detailed tracker information and definitions, default is true
+""",
+        )
+        async def get_realtime_memory_stats_tool(
+            tracker_type: str = "overview",
+            include_details: bool = True
+        ) -> str:
+            """Get real-time memory statistics tool"""
+            return await self.call_tool("get_realtime_memory_stats", {
+                "tracker_type": tracker_type,
+                "include_details": include_details
+            })
+
+        # Historical memory tracker tool
+        @mcp.tool(
+            "get_historical_memory_stats",
+            description="""[Function Description]: Get historical memory statistics via Doris BE Bvar interface.
+
+[Parameter Content]:
+
+- tracker_names (array) [Optional] - List of specific tracker names to query, if not specified will get common trackers
+  * Example: ["process_resident_memory", "global", "query", "load", "compaction"]
+
+- time_range (string) [Optional] - Time range for historical data, default is "1h"
+  * "1h": Last 1 hour
+  * "6h": Last 6 hours
+  * "24h": Last 24 hours
+""",
+        )
+        async def get_historical_memory_stats_tool(
+            tracker_names: List[str] = None,
+            time_range: str = "1h"
+        ) -> str:
+            """Get historical memory statistics tool"""
+            return await self.call_tool("get_historical_memory_stats", {
+                "tracker_names": tracker_names,
+                "time_range": time_range
+            })
+
+        logger.info("Successfully registered 16 tools to MCP server")
 
     async def list_tools(self) -> List[Tool]:
         """List all available query tools (for stdio mode)"""
         tools = [
-            Tool(
-                name="column_analysis[Experimental]",
-                description="""[Important]: This tool is experimental and may not be fully functional!
-[Function Description]: Analyze statistical information and data distribution of the specified column.
-
-[Parameter Content]:
-
-- table_name (string) [Required] - Name of the table to analyze
-
-- column_name (string) [Required] - Name of the column to analyze
-
-- analysis_type (string) [Optional] - Type of analysis to perform, default is "basic"
-  * "basic": Basic statistics (count, null values, distinct values)
-  * "distribution": Data distribution analysis (frequency, percentiles)
-  * "detailed": Comprehensive analysis including all above plus patterns and outliers
-""",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "table_name": {"type": "string", "description": "Table name"},
-                        "column_name": {
-                            "type": "string",
-                            "description": "Column name to analyze",
-                        },
-                        "analysis_type": {
-                            "type": "string",
-                            "enum": ["basic", "distribution", "detailed"],
-                            "description": "Analysis type",
-                            "default": "basic",
-                        },
-                    },
-                    "required": ["table_name", "column_name"],
-                },
-            ),
-            Tool(
-                name="performance_stats",
-                description="""[Function Description]: Get database performance statistics information.
-
-[Parameter Content]:
-
-- metric_type (string) [Optional] - Type of performance metrics to retrieve, default is "queries"
-  * "queries": Query performance metrics (execution time, frequency, etc.)
-  * "connections": Connection statistics (active connections, connection pool status)
-  * "tables": Table-level statistics (size, row count, access patterns)
-  * "system": System-level metrics (CPU, memory, disk usage)
-
-- time_range (string) [Optional] - Time range for statistics, default is "1h"
-  * "1h": Last 1 hour
-  * "6h": Last 6 hours
-  * "24h": Last 24 hours
-  * "7d": Last 7 days
-""",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "metric_type": {
-                            "type": "string",
-                            "enum": ["queries", "connections", "tables", "system"],
-                            "description": "Performance metric type",
-                            "default": "queries",
-                        },
-                        "time_range": {
-                            "type": "string",
-                            "enum": ["1h", "6h", "24h", "7d"],
-                            "description": "Time range",
-                            "default": "1h",
-                        },
-                    },
-                },
-            ),
             Tool(
                 name="exec_query",
                 description="""[Function Description]: Execute SQL query and return result command with catalog federation support.
@@ -610,6 +666,188 @@ class DorisToolsManager:
                     "required": ["random_string"],
                 },
             ),
+            Tool(
+                name="get_sql_explain",
+                description="""[Function Description]: Get SQL execution plan using EXPLAIN command based on Doris syntax.
+
+[Parameter Content]:
+
+- sql (string) [Required] - SQL statement to explain
+
+- verbose (boolean) [Optional] - Whether to show verbose information, default is false
+
+- db_name (string) [Optional] - Target database name, defaults to the current database
+
+- catalog_name (string) [Optional] - Target catalog name for federation queries, defaults to current catalog
+""",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "sql": {"type": "string", "description": "SQL statement to explain"},
+                        "verbose": {"type": "boolean", "description": "Whether to show verbose information", "default": False},
+                        "db_name": {"type": "string", "description": "Database name"},
+                        "catalog_name": {"type": "string", "description": "Catalog name"},
+                    },
+                    "required": ["sql"],
+                },
+            ),
+            Tool(
+                name="get_sql_profile",
+                description="""[Function Description]: Get SQL execution profile by setting trace ID and fetching profile via FE HTTP API.
+
+[Parameter Content]:
+
+- sql (string) [Required] - SQL statement to profile
+
+- db_name (string) [Optional] - Target database name, defaults to the current database
+
+- catalog_name (string) [Optional] - Target catalog name for federation queries, defaults to current catalog
+
+- timeout (integer) [Optional] - Query timeout in seconds, default is 30
+""",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "sql": {"type": "string", "description": "SQL statement to profile"},
+                        "db_name": {"type": "string", "description": "Database name"},
+                        "catalog_name": {"type": "string", "description": "Catalog name"},
+                        "timeout": {"type": "integer", "description": "Query timeout in seconds", "default": 30},
+                    },
+                    "required": ["sql"],
+                },
+            ),
+            Tool(
+                name="get_table_data_size",
+                description="""[Function Description]: Get table data size information via FE HTTP API.
+
+[Parameter Content]:
+
+- db_name (string) [Optional] - Database name, if not specified returns all databases
+
+- table_name (string) [Optional] - Table name, if not specified returns all tables in the database
+
+- single_replica (boolean) [Optional] - Whether to get single replica data size, default is false
+""",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "db_name": {"type": "string", "description": "Database name"},
+                        "table_name": {"type": "string", "description": "Table name"},
+                        "single_replica": {"type": "boolean", "description": "Whether to get single replica data size", "default": False},
+                    },
+                },
+            ),
+            Tool(
+                name="get_monitoring_metrics_info",
+                description="""[Function Description]: Get Doris monitoring metrics definitions and descriptions without executing queries.
+
+[Parameter Content]:
+
+- role (string) [Optional] - Node role to get metric definitions for, default is "all"
+  * "fe": Only FE metrics definitions
+  * "be": Only BE metrics definitions  
+  * "all": Both FE and BE metrics definitions
+
+- monitor_type (string) [Optional] - Type of monitoring metrics, default is "all"
+  * "process": Process monitoring metrics
+  * "jvm": JVM monitoring metrics (FE only)
+  * "machine": Machine monitoring metrics
+  * "all": All monitoring types
+
+- priority (string) [Optional] - Metric priority level, default is "core"
+  * "core": Only core essential metrics (10-12 items for production use)
+  * "p0": Only P0 (highest priority) metrics definitions
+  * "all": All metrics definitions (P0 and non-P0)
+""",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "role": {"type": "string", "enum": ["fe", "be", "all"], "description": "Node role to get metric definitions for", "default": "all"},
+                        "monitor_type": {"type": "string", "enum": ["process", "jvm", "machine", "all"], "description": "Type of monitoring metrics", "default": "all"},
+                        "priority": {"type": "string", "enum": ["core", "p0", "all"], "description": "Metric priority level", "default": "core"},
+                    },
+                },
+            ),
+            Tool(
+                name="get_monitoring_metrics_data",
+                description="""[Function Description]: Get actual Doris monitoring metrics data from FE and BE nodes via HTTP API.
+
+[Parameter Content]:
+
+- role (string) [Optional] - Node role to monitor, default is "all"
+  * "fe": Only FE nodes
+  * "be": Only BE nodes  
+  * "all": Both FE and BE nodes
+
+- monitor_type (string) [Optional] - Type of monitoring metrics, default is "all"
+  * "process": Process monitoring metrics
+  * "jvm": JVM monitoring metrics (FE only)
+  * "machine": Machine monitoring metrics
+  * "all": All monitoring types
+
+- priority (string) [Optional] - Metric priority level, default is "core"
+  * "core": Only core essential metrics (10-12 items for production use)
+  * "p0": Only P0 (highest priority) metrics
+  * "all": All metrics (P0 and non-P0)
+
+- include_raw_metrics (boolean) [Optional] - Whether to include raw detailed metrics data (can be very large)
+""",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "role": {"type": "string", "enum": ["fe", "be", "all"], "description": "Node role to monitor", "default": "all"},
+                        "monitor_type": {"type": "string", "enum": ["process", "jvm", "machine", "all"], "description": "Type of monitoring metrics", "default": "all"},
+                        "priority": {"type": "string", "enum": ["core", "p0", "all"], "description": "Metric priority level", "default": "core"},
+                        "include_raw_metrics": {"type": "boolean", "description": "Whether to include raw detailed metrics data (can be very large)", "default": False},
+                    },
+                },
+            ),
+            Tool(
+                name="get_realtime_memory_stats",
+                description="""[Function Description]: Get real-time memory statistics via Doris BE Memory Tracker web interface.
+
+[Parameter Content]:
+
+- tracker_type (string) [Optional] - Type of memory trackers to retrieve, default is "overview"
+  * "overview": Overview type trackers (process memory, tracked memory summary)
+  * "global": Global shared memory trackers (cache, metadata)
+  * "query": Query-related memory trackers
+  * "load": Load-related memory trackers  
+  * "compaction": Compaction-related memory trackers
+  * "all": All memory tracker types
+
+- include_details (boolean) [Optional] - Whether to include detailed tracker information and definitions, default is true
+""",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "tracker_type": {"type": "string", "enum": ["overview", "global", "query", "load", "compaction", "all"], "description": "Type of memory trackers to retrieve", "default": "overview"},
+                        "include_details": {"type": "boolean", "description": "Whether to include detailed tracker information and definitions", "default": True},
+                    },
+                },
+            ),
+            Tool(
+                name="get_historical_memory_stats",
+                description="""[Function Description]: Get historical memory statistics via Doris BE Bvar interface.
+
+[Parameter Content]:
+
+- tracker_names (array) [Optional] - List of specific tracker names to query, if not specified will get common trackers
+  * Example: ["process_resident_memory", "global", "query", "load", "compaction"]
+
+- time_range (string) [Optional] - Time range for historical data, default is "1h"
+  * "1h": Last 1 hour
+  * "6h": Last 6 hours  
+  * "24h": Last 24 hours
+""",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "tracker_names": {"type": "array", "items": {"type": "string"}, "description": "List of specific tracker names to query"},
+                        "time_range": {"type": "string", "enum": ["1h", "6h", "24h"], "description": "Time range for historical data", "default": "1h"},
+                    },
+                },
+            ),
         ]
         
         return tools
@@ -622,12 +860,7 @@ class DorisToolsManager:
             start_time = time.time()
             
             # Tool routing - dispatch requests to corresponding business logic processors
-            if name == "column_analysis":
-                result = await self._column_analysis_tool(arguments)
-            elif name == "performance_stats":
-                result = await self._performance_stats_tool(arguments)
-            # ===== 9 tool routes migrated from source project =====
-            elif name == "exec_query":
+            if name == "exec_query":
                 result = await self._exec_query_tool(arguments)
             elif name == "get_table_schema":
                 result = await self._get_table_schema_tool(arguments)
@@ -645,6 +878,20 @@ class DorisToolsManager:
                 result = await self._get_recent_audit_logs_tool(arguments)
             elif name == "get_catalog_list":
                 result = await self._get_catalog_list_tool(arguments)
+            elif name == "get_sql_explain":
+                result = await self._get_sql_explain_tool(arguments)
+            elif name == "get_sql_profile":
+                result = await self._get_sql_profile_tool(arguments)
+            elif name == "get_table_data_size":
+                result = await self._get_table_data_size_tool(arguments)
+            elif name == "get_monitoring_metrics_info":
+                result = await self._get_monitoring_metrics_info_tool(arguments)
+            elif name == "get_monitoring_metrics_data":
+                result = await self._get_monitoring_metrics_data_tool(arguments)
+            elif name == "get_realtime_memory_stats":
+                result = await self._get_realtime_memory_stats_tool(arguments)
+            elif name == "get_historical_memory_stats":
+                result = await self._get_historical_memory_stats_tool(arguments)
             else:
                 raise ValueError(f"Unknown tool: {name}")
             
@@ -670,28 +917,6 @@ class DorisToolsManager:
             }
             return json.dumps(error_result, ensure_ascii=False, indent=2)
     
-    # The following are tool routing methods, responsible for calling corresponding business logic processors
-    
-    async def _column_analysis_tool(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        """Column statistical analysis tool routing"""
-        table_name = arguments.get("table_name")
-        column_name = arguments.get("column_name")
-        analysis_type = arguments.get("analysis_type", "basic")
-        
-        # Delegate to table analyzer for processing
-        return await self.table_analyzer.analyze_column(
-            table_name, column_name, analysis_type
-        )
-    
-    async def _performance_stats_tool(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        """Database performance statistics tool routing"""
-        metric_type = arguments.get("metric_type", "queries")
-        time_range = arguments.get("time_range", "1h")
-        
-        # Delegate to performance monitor for processing
-        return await self.performance_monitor.get_performance_stats(
-            metric_type, time_range
-        )
     
     async def _exec_query_tool(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """SQL query execution tool routing (supports federation queries)"""
@@ -780,3 +1005,81 @@ class DorisToolsManager:
         
         # Delegate to metadata extractor for processing
         return await self.metadata_extractor.get_catalog_list_for_mcp() 
+    
+    async def _get_sql_explain_tool(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """SQL Explain tool routing"""
+        sql = arguments.get("sql")
+        verbose = arguments.get("verbose", False)
+        db_name = arguments.get("db_name")
+        catalog_name = arguments.get("catalog_name")
+        
+        # Delegate to SQL analyzer for processing
+        return await self.sql_analyzer.get_sql_explain(
+            sql, verbose, db_name, catalog_name
+        )
+    
+    async def _get_sql_profile_tool(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """SQL Profile tool routing"""
+        sql = arguments.get("sql")
+        db_name = arguments.get("db_name")
+        catalog_name = arguments.get("catalog_name")
+        timeout = arguments.get("timeout", 30)
+        
+        # Delegate to SQL analyzer for processing
+        return await self.sql_analyzer.get_sql_profile(
+            sql, db_name, catalog_name, timeout
+        )
+
+    async def _get_table_data_size_tool(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """Table data size tool routing"""
+        db_name = arguments.get("db_name")
+        table_name = arguments.get("table_name")
+        single_replica = arguments.get("single_replica", False)
+        
+        # Delegate to SQL analyzer for processing
+        return await self.sql_analyzer.get_table_data_size(
+            db_name, table_name, single_replica
+        )
+
+    async def _get_monitoring_metrics_info_tool(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """Monitoring metrics info tool routing"""
+        role = arguments.get("role", "all")
+        monitor_type = arguments.get("monitor_type", "all")
+        priority = arguments.get("priority", "p0")
+        
+        # Delegate to monitoring tools for processing (info_only=True)
+        return await self.monitoring_tools.get_monitoring_metrics(
+            role, monitor_type, priority, info_only=True, format_type="prometheus"
+        )
+
+    async def _get_monitoring_metrics_data_tool(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """Monitoring metrics data tool routing"""
+        role = arguments.get("role", "all")
+        monitor_type = arguments.get("monitor_type", "all")
+        priority = arguments.get("priority", "p0")
+        include_raw_metrics = arguments.get("include_raw_metrics", False)
+        
+        # Delegate to monitoring tools for processing (info_only=False)
+        return await self.monitoring_tools.get_monitoring_metrics(
+            role, monitor_type, priority, info_only=False, format_type="prometheus", include_raw_metrics=include_raw_metrics
+        )
+
+    async def _get_realtime_memory_stats_tool(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """Real-time memory statistics tool routing"""
+        tracker_type = arguments.get("tracker_type", "overview")
+        include_details = arguments.get("include_details", True)
+        
+        # Delegate to memory tracker for processing
+        return await self.memory_tracker.get_realtime_memory_stats(
+            tracker_type, include_details
+        )
+
+    async def _get_historical_memory_stats_tool(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """Historical memory statistics tool routing"""
+        tracker_names = arguments.get("tracker_names")
+        time_range = arguments.get("time_range", "1h")
+        
+        # Delegate to memory tracker for processing
+        return await self.memory_tracker.get_historical_memory_stats(
+            tracker_names, time_range
+        )

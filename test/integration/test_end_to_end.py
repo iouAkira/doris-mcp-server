@@ -37,14 +37,6 @@ class TestEndToEndIntegration:
         from doris_mcp_server.utils.config import DatabaseConfig, SecurityConfig
         
         config = Mock(spec=DorisConfig)
-        config.doris_host = "localhost"
-        config.doris_port = 9030
-        config.doris_user = "test_user"
-        config.doris_password = "test_password"
-        config.doris_database = "test_db"
-        config.server_host = "localhost"
-        config.server_port = 8000
-        config.enable_security = True
         
         # Add database config
         config.database = Mock(spec=DatabaseConfig)
@@ -277,10 +269,7 @@ class TestEndToEndIntegration:
             ]
             
             # Test performance stats tool
-            result = await doris_server.tools_manager.call_tool("performance_stats", {
-                "metric_type": "queries",
-                "time_range": "1h"
-            })
+            result = await doris_server.tools_manager.call_tool("get_db_list", {})
             result_data = json.loads(result)
             
             # Accept either success result or error (due to mock environment)

@@ -44,6 +44,14 @@ class DatabaseConfig:
     database: str = "information_schema"
     charset: str = "UTF8"
 
+    # FE HTTP API port for profile and other HTTP APIs
+    fe_http_port: int = 8030
+    
+    # BE nodes configuration for external access
+    # If be_hosts is empty, will use "show backends" to get BE nodes
+    be_hosts: list[str] = field(default_factory=list)
+    be_webserver_port: int = 8040
+
     # Connection pool configuration
     min_connections: int = 5
     max_connections: int = 20
@@ -102,6 +110,9 @@ class PerformanceConfig:
     # Connection pool optimization configuration
     connection_pool_size: int = 20
     idle_timeout: int = 1800
+    
+    # Response content size limit (characters)
+    max_response_content_size: int = 4096
 
 
 @dataclass
@@ -143,9 +154,12 @@ class DorisConfig:
 
     # Basic configuration
     server_name: str = "doris-mcp-server"
-    server_version: str = "0.3.0"
+    server_version: str = "0.4.0"
     server_port: int = 3000
     transport: str = "stdio"
+    
+    # Temporary files configuration
+    temp_files_dir: str = "tmp"  # Temporary files directory for Explain and Profile outputs
 
     # Sub-configuration modules
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
@@ -216,6 +230,13 @@ class DorisConfig:
         config.database.user = os.getenv("DORIS_USER", config.database.user)
         config.database.password = os.getenv("DORIS_PASSWORD", config.database.password)
         config.database.database = os.getenv("DORIS_DATABASE", config.database.database)
+        config.database.fe_http_port = int(os.getenv("DORIS_FE_HTTP_PORT", str(config.database.fe_http_port)))
+        
+        # BE nodes configuration
+        be_hosts_env = os.getenv("DORIS_BE_HOSTS", "")
+        if be_hosts_env:
+            config.database.be_hosts = [host.strip() for host in be_hosts_env.split(",") if host.strip()]
+        config.database.be_webserver_port = int(os.getenv("DORIS_BE_WEBSERVER_PORT", str(config.database.be_webserver_port)))
 
         # Connection pool configuration
         config.database.min_connections = int(
@@ -266,6 +287,9 @@ class DorisConfig:
         config.performance.query_timeout = int(
             os.getenv("QUERY_TIMEOUT", str(config.performance.query_timeout))
         )
+        config.performance.max_response_content_size = int(
+            os.getenv("MAX_RESPONSE_CONTENT_SIZE", str(config.performance.max_response_content_size))
+        )
 
         # Logging configuration
         config.logging.level = os.getenv("LOG_LEVEL", config.logging.level)
@@ -294,6 +318,7 @@ class DorisConfig:
         config.server_name = os.getenv("SERVER_NAME", config.server_name)
         config.server_version = os.getenv("SERVER_VERSION", config.server_version)
         config.server_port = int(os.getenv("SERVER_PORT", str(config.server_port)))
+        config.temp_files_dir = os.getenv("TEMP_FILES_DIR", config.temp_files_dir)
 
         return config
 
@@ -303,7 +328,7 @@ class DorisConfig:
         config = cls()
 
         # Update basic configuration
-        for key in ["server_name", "server_version", "server_port"]:
+        for key in ["server_name", "server_version", "server_port", "temp_files_dir"]:
             if key in config_data:
                 setattr(config, key, config_data[key])
 
@@ -353,6 +378,7 @@ class DorisConfig:
             "server_name": self.server_name,
             "server_version": self.server_version,
             "server_port": self.server_port,
+            "temp_files_dir": self.temp_files_dir,
             "database": {
                 "host": self.database.host,
                 "port": self.database.port,
@@ -360,6 +386,9 @@ class DorisConfig:
                 "password": "***",  # Hide password
                 "database": self.database.database,
                 "charset": self.database.charset,
+                "fe_http_port": self.database.fe_http_port,
+                "be_hosts": self.database.be_hosts,
+                "be_webserver_port": self.database.be_webserver_port,
                 "min_connections": self.database.min_connections,
                 "max_connections": self.database.max_connections,
                 "connection_timeout": self.database.connection_timeout,
@@ -385,6 +414,7 @@ class DorisConfig:
                 "query_timeout": self.performance.query_timeout,
                 "connection_pool_size": self.performance.connection_pool_size,
                 "idle_timeout": self.performance.idle_timeout,
+                "max_response_content_size": self.performance.max_response_content_size,
             },
             "logging": {
                 "level": self.logging.level,

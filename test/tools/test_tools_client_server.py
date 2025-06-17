@@ -136,24 +136,7 @@ class TestToolsClientServer:
         result = await client.connect_and_run(test_callback)
         assert "success" in result
 
-    @pytest.mark.asyncio
-    async def test_call_tool_performance_stats_via_client(self, client, test_config):
-        """Test calling performance_stats tool through client"""
-        if not test_config.is_performance_tests_enabled():
-            pytest.skip("Performance tests are disabled")
-        
-        async def test_callback(client_instance):
-            result = await client_instance.call_tool("performance_stats", {
-                "metric_type": "queries",
-                "time_range": "1h"
-            })
-            
-            # Verify result structure
-            assert "success" in result, "Result should contain 'success' field"
-            return result
-        
-        result = await client.connect_and_run(test_callback)
-        assert "success" in result
+
 
     @pytest.mark.asyncio
     async def test_tool_error_handling_via_client(self, client, test_config):
