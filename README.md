@@ -156,7 +156,7 @@ pip install -r requirements.txt
 Copy the `.env.example` file to `.env` and modify the settings according to your environment:
 
 ```bash
-cp .env.example .env
+cp .env.examples .env
 ```
 
 **Key Environment Variables:**
@@ -225,7 +225,6 @@ This command starts the FastAPI application with Streamable HTTP MCP service.
 
 *   **Streamable HTTP**: `http://<host>:<port>/mcp` (Primary MCP endpoint - supports GET, POST, DELETE, OPTIONS)
 *   **Health Check**: `http://<host>:<port>/health`
-*   **Status Check**: `http://<host>:<port>/status`
 
 > **Note**: The server uses Streamable HTTP for web-based communication, providing unified request/response and streaming capabilities.
 
@@ -542,7 +541,7 @@ sensitive_tables = {
 The system provides comprehensive security monitoring:
 
 ```python
-# Security audit log example
+# Security audit log examples
 {
     "timestamp": "2024-01-15T10:30:00Z",
     "user_id": "analyst_user",
