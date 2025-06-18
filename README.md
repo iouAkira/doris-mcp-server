@@ -499,7 +499,7 @@ custom_rule = {
 }
 ```
 
-### Security Configuration Example
+### Security Configuration Examples
 
 #### Environment Variables
 
@@ -541,7 +541,7 @@ sensitive_tables = {
 The system provides comprehensive security monitoring:
 
 ```python
-# Security audit log examples
+# Security audit log example
 {
     "timestamp": "2024-01-15T10:30:00Z",
     "user_id": "analyst_user",
