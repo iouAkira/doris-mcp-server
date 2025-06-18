@@ -156,7 +156,7 @@ pip install -r requirements.txt
 Copy the `.env.example` file to `.env` and modify the settings according to your environment:
 
 ```bash
-cp .env.examples .env
+cp .env.example .env
 ```
 
 **Key Environment Variables:**
@@ -499,7 +499,7 @@ custom_rule = {
 }
 ```
 
-### Security Configuration Examples
+### Security Configuration Example
 
 #### Environment Variables
 
