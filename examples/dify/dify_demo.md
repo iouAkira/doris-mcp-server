@@ -24,14 +24,14 @@ This document demonstrates how to integrate and use `doris-mcp-server` in Dify t
 
 ## Table of Contents
 
-  - [Prerequisites](https://www.google.com/search?q=%23prerequisites)
-  - [Installation & Configuration](https://www.google.com/search?q=%23installation--configuration)
-  - [Starting the MCP Server](https://www.google.com/search?q=%23starting-the-mcp-server)
-  - [Ngrok Tunnel (Optional)](https://www.google.com/search?q=%23ngrok-tunnel-optional)
-  - [Installing & Configuring the Plugin in Dify](https://www.google.com/search?q=%23installing--configuring-the-plugin-in-dify)
-  - [Creating a Dify App](https://www.google.com/search?q=%23creating-a-dify-app)
-  - [Adding MCP Tools](https://www.google.com/search?q=%23adding-mcp-tools)
-  - [Example Calls](https://www.google.com/search?q=%23example-calls)
+- [Prerequisites](#prerequisites)  
+- [Starting the MCP Server](#starting-the-mcp-server)  
+- [Ngrok Tunnel (Optional)](#ngrok-tunnel-optional)  
+- [Installing & Configuring the Plugin in Dify](#installing--configuring-the-plugin-in-dify)  
+- [Creating a Dify App](#creating-a-dify-app)  
+- [Adding MCP Tools](#adding-mcp-tools)  
+- [Example Calls](#example-calls)
+
 
 -----
 
