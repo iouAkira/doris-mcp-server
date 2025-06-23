@@ -225,7 +225,6 @@ This command starts the FastAPI application with Streamable HTTP MCP service.
 
 *   **Streamable HTTP**: `http://<host>:<port>/mcp` (Primary MCP endpoint - supports GET, POST, DELETE, OPTIONS)
 *   **Health Check**: `http://<host>:<port>/health`
-*   **Status Check**: `http://<host>:<port>/status`
 
 > **Note**: The server uses Streamable HTTP for web-based communication, providing unified request/response and streaming capabilities.
 
