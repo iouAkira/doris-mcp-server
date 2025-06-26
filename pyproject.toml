@@ -20,7 +20,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcp-doris-server"
-version = "0.4.0"
+version = "0.4.2"
 description = "Enterprise-grade Model Context Protocol (MCP) server implementation for Apache Doris"
 authors = [
     {name = "Yijia Su", email = "freeoneplus@apache.org"}
@@ -42,7 +42,7 @@ classifiers = [
 
 dependencies = [
     # Core MCP dependencies
-    "mcp>=1.8.0",
+    "mcp>=1.8.0,<2.0.0",
     # Database drivers
     "aiomysql>=0.2.0",
     "PyMySQL>=1.1.0",

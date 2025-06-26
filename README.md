@@ -21,15 +21,16 @@ under the License.
 
 Doris MCP (Model Context Protocol) Server is a backend service built with Python and FastAPI. It implements the MCP, allowing clients to interact with it through defined "Tools". It's primarily designed to connect to Apache Doris databases, potentially leveraging Large Language Models (LLMs) for tasks like converting natural language queries to SQL (NL2SQL), executing queries, and performing metadata management and analysis.
 
-## 🚀 What's New in v0.4.0
+## 🚀 What's New in v0.4.2
 
-- **🛠️ Enhanced Monitoring Tools Module**: Advanced memory tracking, metrics collection, and BE node discovery with modular, extensible design
-- **🔍 Mature Query Information Tools**: Enhanced SQL explain and profiling with configurable content truncation, file export for LLM attachments, and advanced query analytics
-- **⚙️ Unified Configuration Framework**: Centralized configuration management through `config.py` with comprehensive validation and standardized parameter naming
-- **🗃️ Smart Default Database Handling**: Automatic fallback to `information_schema` database, eliminating startup configuration requirements and improving reliability
-- **🗑️ Production-Ready Architecture**: Removed experimental tools in favor of battle-tested, production-ready alternatives with better performance and monitoring
+- **🔒 Enhanced Security Framework**: Comprehensive SQL security validation with configurable blocked keywords, SQL injection protection, and unified security configuration management
+- **🛠️ Connection Stability Improvements**: Fixed critical `at_eof` connection errors with advanced connection health monitoring, automatic retry mechanisms, and proactive connection cleanup
+- **⚙️ Flexible Security Configuration**: Environment variable support for security policies (`BLOCKED_KEYWORDS`, `ENABLE_SECURITY_CHECK`) with unified configuration architecture eliminating code duplication
+- **🎯 Centralized Configuration Management**: All security keywords now managed through single configuration source with consistent enforcement across all components
+- **🔧 MCP Version Compatibility**: Resolved MCP library version conflicts with intelligent compatibility layer supporting both MCP 1.8.x and 1.9.x versions
+- **🚀 Production Reliability**: Enhanced error handling, connection diagnostics, and automatic recovery from database connection issues
 
-> **⚠️ Breaking Changes**: Experimental tools (`column_analysis`, `performance_stats`) have been removed and replaced with enhanced monitoring and query information tools.
+> **🔧 Key Improvements**: Resolved connection stability issues, unified security keyword management, added comprehensive environment variable configuration for security policies, and fixed MCP library version compatibility conflicts.
 
 ## Core Features
 
@@ -38,18 +39,18 @@ Doris MCP (Model Context Protocol) Server is a backend service built with Python
 *   **Stdio Communication**: Standard input/output mode for direct integration with MCP clients like Cursor.
 *   **Enterprise-Grade Architecture**: Modular design with comprehensive functionality:
     *   **Tools Manager**: Centralized tool registration and routing with unified interfaces (`doris_mcp_server/tools/tools_manager.py`)
-    *   **Enhanced Monitoring Tools Module**: Advanced memory tracking, metrics collection, and flexible BE node discovery (Enhanced in v0.4.0)
-    *   **Query Information Tools**: Enhanced SQL explain and profiling with configurable content management and LLM file export capabilities (Enhanced in v0.4.0)
+    *   **Enhanced Monitoring Tools Module**: Advanced memory tracking, metrics collection, and flexible BE node discovery with modular, extensible design
+    *   **Query Information Tools**: Enhanced SQL explain and profiling with configurable content truncation, file export for LLM attachments, and advanced query analytics
     *   **Resources Manager**: Resource management and metadata exposure (`doris_mcp_server/tools/resources_manager.py`)
     *   **Prompts Manager**: Intelligent prompt templates for data analysis (`doris_mcp_server/tools/prompts_manager.py`)
 *   **Advanced Database Features**:
-    *   **Query Execution**: High-performance SQL execution with advanced caching and optimization (`doris_mcp_server/utils/query_executor.py`)
-    *   **Security Management**: Comprehensive SQL security validation, data masking, and access control (`doris_mcp_server/utils/security.py`)
+    *   **Query Execution**: High-performance SQL execution with advanced caching and optimization, enhanced connection stability and automatic retry mechanisms (`doris_mcp_server/utils/query_executor.py`)
+    *   **Security Management**: Comprehensive SQL security validation with configurable blocked keywords, SQL injection protection, data masking, and unified security configuration management (`doris_mcp_server/utils/security.py`)
     *   **Metadata Extraction**: Comprehensive database metadata with catalog federation support (`doris_mcp_server/utils/schema_extractor.py`)
     *   **Performance Analysis**: Advanced column analysis, performance monitoring, and data analysis tools (`doris_mcp_server/utils/analysis_tools.py`)
 *   **Catalog Federation Support**: Full support for multi-catalog environments (internal Doris tables and external data sources like Hive, MySQL, etc.)
-*   **Enterprise Security**: Comprehensive security framework with authentication, authorization, SQL injection protection, and data masking capabilities (`doris_mcp_server/utils/security.py`)
-*   **Flexible Configuration**: Comprehensive configuration management with environment variables, file-based config, and validation (`doris_mcp_server/utils/config.py`)
+*   **Enterprise Security**: Comprehensive security framework with authentication, authorization, SQL injection protection, and data masking capabilities with environment variable configuration support
+*   **Unified Configuration Framework**: Centralized configuration management through `config.py` with comprehensive validation, standardized parameter naming, and smart default database handling with automatic fallback to `information_schema`
 
 ## System Requirements
 
@@ -65,7 +66,7 @@ Doris MCP (Model Context Protocol) Server is a backend service built with Python
 pip install mcp-doris-server
 
 # Install specific version
-pip install mcp-doris-server==0.4.0
+pip install mcp-doris-server==0.4.2
 ```
 
 > **💡 Command Compatibility**: After installation, both `doris-mcp-server` and `mcp-doris-server` commands are available for backward compatibility. You can use either command interchangeably.
@@ -174,6 +175,8 @@ cp .env.example .env
 *   **Security Configuration**:
     *   `AUTH_TYPE`: Authentication type (token/basic/oauth, default: token)
     *   `TOKEN_SECRET`: Token secret key
+    *   `ENABLE_SECURITY_CHECK`: Enable/disable SQL security validation (default: true, New in v0.4.2)
+    *   `BLOCKED_KEYWORDS`: Comma-separated list of blocked SQL keywords (New in v0.4.2)
     *   `ENABLE_MASKING`: Enable data masking (default: true)
     *   `MAX_RESULT_ROWS`: Maximum result rows (default: 10000)
 *   **Performance Configuration**:
@@ -404,15 +407,24 @@ The system automatically validates SQL queries for security risks:
 
 #### Blocked Operations
 
-Configure blocked SQL operations:
+Configure blocked SQL operations using environment variables (New in v0.4.2):
 
 ```bash
-# Environment variable
-BLOCKED_SQL_OPERATIONS=DROP,DELETE,TRUNCATE,ALTER,CREATE,INSERT,UPDATE,GRANT,REVOKE
+# Enable/disable SQL security check (New in v0.4.2)
+ENABLE_SECURITY_CHECK=true
+
+# Customize blocked keywords via environment variable (New in v0.4.2)
+BLOCKED_KEYWORDS="DROP,DELETE,TRUNCATE,ALTER,CREATE,INSERT,UPDATE,GRANT,REVOKE,EXEC,EXECUTE,SHUTDOWN,KILL"
 
 # Maximum query complexity score
 MAX_QUERY_COMPLEXITY=100
 ```
+
+**Default Blocked Keywords (Unified in v0.4.2):**
+- **DDL Operations**: DROP, CREATE, ALTER, TRUNCATE
+- **DML Operations**: DELETE, INSERT, UPDATE  
+- **DCL Operations**: GRANT, REVOKE
+- **System Operations**: EXEC, EXECUTE, SHUTDOWN, KILL
 
 #### SQL Injection Protection
 
@@ -967,6 +979,60 @@ Recommendations:
    DORIS_MIN_CONNECTIONS=5
    DORIS_MAX_CONNECTIONS=20
    ```
+
+### Q: How to resolve `at_eof` connection errors? (Fixed in v0.4.2)
+
+**A:** Version 0.4.2 has resolved the critical `at_eof` connection errors. The improvements include:
+
+1. **Enhanced Connection Health Monitoring**: Strict connection state validation before operations
+2. **Automatic Retry Mechanism**: Failed queries are automatically retried up to 2 times
+3. **Proactive Connection Cleanup**: Automatic detection and cleanup of problematic connections
+4. **Connection Diagnostics**: Comprehensive connection health analysis and reporting
+
+If you still encounter connection issues after upgrading to v0.4.2:
+```bash
+# Check connection diagnostics
+# The system now automatically handles connection recovery
+# Monitor logs for connection health reports
+tail -f logs/doris_mcp_server.log | grep "connection"
+```
+
+### Q: How to resolve MCP library version compatibility issues? (Fixed in v0.4.2)
+
+**A:** Version 0.4.2 introduced an intelligent MCP compatibility layer that supports both MCP 1.8.x and 1.9.x versions:
+
+**The Problem:**
+- MCP 1.9.3 introduced breaking changes to the `RequestContext` class (changed from 2 to 3 generic parameters)
+- This caused `TypeError: Too few arguments for RequestContext` errors
+
+**The Solution (v0.4.2):**
+- **Intelligent Version Detection**: Automatically detects the installed MCP version
+- **Compatibility Layer**: Gracefully handles API differences between versions
+- **Flexible Version Support**: `mcp>=1.8.0,<2.0.0` in dependencies
+
+**Supported MCP Versions:**
+```bash
+# Both versions now work seamlessly
+pip install mcp==1.8.0  # Stable version (recommended)
+pip install mcp==1.9.3  # Latest version with new features
+```
+
+**Version Information:**
+```bash
+# Check which MCP version is being used
+doris-mcp-server --transport stdio
+# The server will log: "Using MCP version: x.x.x"
+```
+
+If you encounter MCP-related startup errors:
+```bash
+# Recommended: Use stable version
+pip uninstall mcp
+pip install mcp==1.8.0
+
+# Or upgrade to latest compatible version
+pip install --upgrade mcp-doris-server==0.4.2
+```
 
 ### Q: How to view server logs?
 

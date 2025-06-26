@@ -948,7 +948,7 @@ wheels = [
 
 [[package]]
 name = "mcp-doris-server"
-version = "0.4.0"
+version = "0.4.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "aiofiles" },
@@ -1054,7 +1054,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.26.0" },
     { name = "isort", marker = "extra == 'dev'", specifier = ">=5.13.0" },
     { name = "jaeger-client", marker = "extra == 'monitoring'", specifier = ">=4.8.0" },
-    { name = "mcp", specifier = ">=1.8.0" },
+    { name = "mcp", specifier = ">=1.8.0,<2.0.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.8.0" },
     { name = "myst-parser", marker = "extra == 'dev'", specifier = ">=2.0.0" },
     { name = "myst-parser", marker = "extra == 'docs'", specifier = ">=2.0.0" },

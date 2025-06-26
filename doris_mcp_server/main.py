@@ -28,6 +28,17 @@ import json
 import logging
 from typing import Any
 
+# MCP version compatibility check
+try:
+    import mcp
+    MCP_VERSION = getattr(mcp, '__version__', 'unknown')
+    logger = logging.getLogger(__name__)
+    logger.info(f"Using MCP version: {MCP_VERSION}")
+except Exception as e:
+    logger = logging.getLogger(__name__)
+    logger.warning(f"Could not determine MCP version: {e}")
+    MCP_VERSION = 'unknown'
+
 from mcp.server import Server
 from mcp.server.models import InitializationOptions
 
@@ -74,6 +85,47 @@ class DorisServer:
 
         self.logger = logging.getLogger(f"{__name__}.DorisServer")
         self._setup_handlers()
+
+    def _get_mcp_capabilities(self):
+        """Get MCP capabilities with version compatibility"""
+        try:
+            # For MCP 1.9.x and newer
+            from mcp.server.lowlevel.server import NotificationOptions
+            
+            return self.server.get_capabilities(
+                notification_options=NotificationOptions(
+                    prompts_changed=True,
+                    resources_changed=True,
+                    tools_changed=True
+                ),
+                experimental_capabilities={}
+            )
+        except TypeError:
+            try:
+                # For MCP 1.8.x
+                from mcp.server.lowlevel.server import NotificationOptions
+                
+                return self.server.get_capabilities(
+                    notification_options=NotificationOptions(
+                        prompts_changed=True,
+                        resources_changed=True,
+                        tools_changed=True
+                    ),
+                    experimental_capabilities={}
+                )
+            except Exception as e:
+                self.logger.warning(f"Could not get capabilities with NotificationOptions: {e}")
+                # Fallback for older versions
+                try:
+                    return self.server.get_capabilities()
+                except Exception as fallback_e:
+                    self.logger.error(f"Failed to get capabilities: {fallback_e}")
+                    # Return minimal capabilities
+                    return {
+                        "resources": {},
+                        "tools": {},
+                        "prompts": {}
+                    }
 
     def _setup_handlers(self):
         """Setup MCP protocol handlers"""
@@ -193,18 +245,8 @@ class DorisServer:
                     read_stream, write_stream = streams
                     self.logger.info("stdio_server streams created successfully")
                     
-                    # Create initialization options
-                    # MCP 1.8.0 requires parameters for get_capabilities
-                    from mcp.server.lowlevel.server import NotificationOptions
-                    
-                    capabilities = self.server.get_capabilities(
-                        notification_options=NotificationOptions(
-                            prompts_changed=True,
-                            resources_changed=True,
-                            tools_changed=True
-                        ),
-                        experimental_capabilities={}
-                    )
+                    # Create initialization options with version compatibility
+                    capabilities = self._get_mcp_capabilities()
                     
                     init_options = InitializationOptions(
                         server_name="doris-mcp-server",
