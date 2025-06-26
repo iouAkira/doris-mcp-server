@@ -20,7 +20,6 @@ Doris Security Management Module
 Implements enterprise-level authentication, authorization, SQL security validation and data masking functionality
 """
 
-import hashlib
 import logging
 import re
 from dataclasses import dataclass
@@ -101,30 +100,24 @@ class DorisSecurityManager:
         self.masking_rules = self._load_masking_rules()
 
     def _load_blocked_keywords(self) -> set[str]:
-        """Load blocked SQL keywords"""
-        default_blocked = {
-            "DROP",
-            "DELETE",
-            "TRUNCATE",
-            "ALTER",
-            "CREATE",
-            "INSERT",
-            "UPDATE",
-            "GRANT",
-            "REVOKE",
-            "EXEC",
-            "EXECUTE",
-            "SHUTDOWN",
-            "KILL",
-        }
-
-        # Load custom rules from configuration file
+        """Load blocked SQL keywords from configuration"""
+        # Load keywords from configuration, unified source of truth
         if hasattr(self.config, 'get'):
-            custom_blocked = set(self.config.get("blocked_keywords", []))
+            # Dictionary-style configuration
+            blocked_keywords = self.config.get("blocked_keywords", [])
+        elif hasattr(self.config, 'security') and hasattr(self.config.security, 'blocked_keywords'):
+            # DorisConfig object, get through security.blocked_keywords
+            blocked_keywords = self.config.security.blocked_keywords
         else:
-            custom_blocked = set()
+            # Fallback to default if no configuration available
+            blocked_keywords = [
+                "DROP", "CREATE", "ALTER", "TRUNCATE",
+                "DELETE", "INSERT", "UPDATE", 
+                "GRANT", "REVOKE",
+                "EXEC", "EXECUTE", "SHUTDOWN", "KILL"
+            ]
 
-        return default_blocked.union(custom_blocked)
+        return set(blocked_keywords)
 
     def _load_sensitive_tables(self) -> dict[str, SecurityLevel]:
         """Load sensitive table configuration"""
@@ -478,13 +471,30 @@ class SQLSecurityValidator:
             # Dictionary configuration
             self.blocked_keywords = set(config.get("blocked_keywords", []))
             self.max_query_complexity = config.get("max_query_complexity", 100)
+            self.enable_security_check = config.get("enable_security_check", True)
+        elif hasattr(config, 'security'):
+            # DorisConfig object with security attribute - unified source from config
+            self.blocked_keywords = set(config.security.blocked_keywords)
+            self.max_query_complexity = config.security.max_query_complexity
+            self.enable_security_check = getattr(config.security, 'enable_security_check', True)
         else:
-            # DorisConfig object, use default values
-            self.blocked_keywords = set(["DROP", "DELETE", "TRUNCATE", "ALTER", "CREATE", "INSERT", "UPDATE"])
+            # Fallback to default if no configuration available
+            self.blocked_keywords = set([
+                "DROP", "CREATE", "ALTER", "TRUNCATE",
+                "DELETE", "INSERT", "UPDATE", 
+                "GRANT", "REVOKE",
+                "EXEC", "EXECUTE", "SHUTDOWN", "KILL"
+            ])
             self.max_query_complexity = 100
+            self.enable_security_check = True
 
     async def validate(self, sql: str, auth_context: AuthContext) -> ValidationResult:
         """Validate SQL query security"""
+        # If security check is disabled, always return valid
+        if not self.enable_security_check:
+            self.logger.debug("SQL security check is disabled, allowing all queries")
+            return ValidationResult(is_valid=True)
+            
         try:
             # Parse SQL statement
             parsed = sqlparse.parse(sql)[0]

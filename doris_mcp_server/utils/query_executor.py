@@ -548,79 +548,127 @@ class DorisQueryExecutor:
         user_id: str = "mcp_user"
     ) -> Dict[str, Any]:
         """Execute SQL query for MCP interface - unified method"""
-        try:
-            if not sql:
-                return {
-                    "success": False,
-                    "error": "SQL query is required",
-                    "data": None
-                }
+        max_retries = 2
+        retry_count = 0
+        
+        while retry_count <= max_retries:
+            try:
+                if not sql:
+                    return {
+                        "success": False,
+                        "error": "SQL query is required",
+                        "data": None
+                    }
 
-            # Add LIMIT if not present and it's a SELECT query
-            if sql.upper().startswith("SELECT") and "LIMIT" not in sql.upper():
-                if sql.endswith(";"):
-                    sql = sql[:-1]
-                sql = f"{sql} LIMIT {limit}"
+                # Add LIMIT if not present and it's a SELECT query
+                if sql.upper().startswith("SELECT") and "LIMIT" not in sql.upper():
+                    if sql.endswith(";"):
+                        sql = sql[:-1]
+                    sql = f"{sql} LIMIT {limit}"
 
-            # Create auth context for MCP calls
-            class MockAuthContext:
-                def __init__(self):
-                    self.user_id = user_id
-                    self.roles = ["data_analyst"]
-                    self.permissions = ["read_data", "execute_query"]
-                    self.session_id = session_id
-                    self.security_level = "internal"
+                # Create auth context for MCP calls
+                class MockAuthContext:
+                    def __init__(self):
+                        self.user_id = user_id
+                        self.roles = ["data_analyst"]
+                        self.permissions = ["read_data", "execute_query"]
+                        self.session_id = session_id
+                        self.security_level = "internal"
 
-            auth_context = MockAuthContext()
-            
-            # Create query request
-            query_request = QueryRequest(
-                sql=sql,
-                session_id=session_id,
-                user_id=user_id,
-                timeout=timeout,
-                cache_enabled=True
-            )
-            
-            # Execute query
-            result = await self.execute_query(query_request, auth_context)
-            
-            # Process results
-            processed_data = []
-            if result.data:
-                for row in result.data:
-                    processed_row = self._serialize_row_data(row)
-                    processed_data.append(processed_row)
+                auth_context = MockAuthContext()
+                
+                # Create query request
+                query_request = QueryRequest(
+                    sql=sql,
+                    session_id=session_id,
+                    user_id=user_id,
+                    timeout=timeout,
+                    cache_enabled=False  # Disable cache for MCP calls to ensure fresh data
+                )
 
-            return {
-                "success": True,
-                "data": processed_data,
-                "metadata": {
-                    "row_count": result.row_count,
-                    "execution_time": result.execution_time,
-                    "columns": result.metadata.get("columns", []),
-                    "query": sql
-                },
-                "error": None
-            }
+                # Execute query with retry logic
+                try:
+                    result = await self.execute_query(query_request, auth_context)
+                    
+                    # Serialize data for JSON response
+                    serialized_data = []
+                    for row in result.data:
+                        serialized_data.append(self._serialize_row_data(row))
 
-        except Exception as e:
-            error_msg = str(e)
-            self.logger.error(f"SQL execution error: {error_msg}")
-            
-            # Analyze error for better user feedback
-            error_analysis = self._analyze_error(error_msg)
-            
-            return {
-                "success": False,
-                "error": error_analysis.get("user_message", error_msg),
-                "error_type": error_analysis.get("error_type", "execution_error"),
-                "data": None,
-                "metadata": {
-                    "query": sql,
-                    "error_details": error_msg
-                }
-            }
+                    return {
+                        "success": True,
+                        "data": serialized_data,
+                        "row_count": result.row_count,
+                        "execution_time": result.execution_time,
+                        "metadata": {
+                            "columns": result.metadata.get("columns", []),
+                            "query": sql
+                        }
+                    }
+                    
+                except Exception as query_error:
+                    # Check if it's a connection-related error that we should retry
+                    error_str = str(query_error).lower()
+                    connection_errors = [
+                        "at_eof", "connection", "closed", "nonetype", 
+                        "transport", "reader", "broken pipe", "connection reset"
+                    ]
+                    
+                    is_connection_error = any(err in error_str for err in connection_errors)
+                    
+                    if is_connection_error and retry_count < max_retries:
+                        retry_count += 1
+                        self.logger.warning(f"Connection error detected, retrying ({retry_count}/{max_retries}): {query_error}")
+                        
+                        # Release the problematic connection
+                        try:
+                            await self.connection_manager.release_connection(session_id)
+                        except Exception:
+                            pass  # Ignore cleanup errors
+                        
+                        # Wait a bit before retry
+                        await asyncio.sleep(0.5 * retry_count)
+                        continue
+                    else:
+                        # Re-raise if not a connection error or max retries exceeded
+                        raise query_error
+
+            except Exception as e:
+                error_msg = str(e)
+                
+                # If we've exhausted retries or it's not a connection error, return error
+                if retry_count >= max_retries or "at_eof" not in error_msg.lower():
+                    error_analysis = self._analyze_error(error_msg)
+                    
+                    return {
+                        "success": False, 
+                        "error": error_analysis.get("user_message", error_msg),
+                        "error_type": error_analysis.get("error_type", "general_error"),
+                        "data": None,
+                        "metadata": {
+                            "query": sql,
+                            "error_details": error_msg,
+                            "retry_count": retry_count
+                        }
+                    }
+                else:
+                    # Try one more time for connection errors
+                    retry_count += 1
+                    if retry_count <= max_retries:
+                        self.logger.warning(f"Retrying query due to connection error ({retry_count}/{max_retries}): {e}")
+                        await asyncio.sleep(0.5 * retry_count)
+                        continue
+                    else:
+                        return {
+                            "success": False,
+                            "error": f"Query failed after {max_retries} retries: {error_msg}",
+                            "data": None,
+                            "metadata": {
+                                "query": sql,
+                                "error_details": error_msg,
+                                "retry_count": retry_count
+                            }
+                        }
 
     def _serialize_row_data(self, row_data: Dict[str, Any]) -> Dict[str, Any]:
         """Serialize row data for JSON response"""
@@ -649,7 +697,12 @@ class DorisQueryExecutor:
         """Analyze error message and provide user-friendly feedback"""
         error_msg_lower = error_message.lower()
         
-        if "table" in error_msg_lower and "doesn't exist" in error_msg_lower:
+        if "at_eof" in error_msg_lower or "nonetype" in error_msg_lower and "at_eof" in error_msg_lower:
+            return {
+                "error_type": "connection_lost",
+                "user_message": "Database connection was lost. The query has been automatically retried. If this persists, please restart the server."
+            }
+        elif "table" in error_msg_lower and "doesn't exist" in error_msg_lower:
             return {
                 "error_type": "table_not_found",
                 "user_message": "The specified table does not exist. Please check the table name and database."
@@ -673,6 +726,11 @@ class DorisQueryExecutor:
             return {
                 "error_type": "timeout",
                 "user_message": "Query execution timed out. Try simplifying your query or adding more specific filters."
+            }
+        elif "connection" in error_msg_lower and ("closed" in error_msg_lower or "reset" in error_msg_lower):
+            return {
+                "error_type": "connection_error",
+                "user_message": "Database connection was interrupted. The query has been automatically retried."
             }
         else:
             return {

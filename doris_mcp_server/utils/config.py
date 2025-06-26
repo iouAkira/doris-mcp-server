@@ -70,17 +70,26 @@ class SecurityConfig:
     token_expiry: int = 3600
 
     # SQL security configuration
+    enable_security_check: bool = True  # Main switch: whether to enable SQL security check
     blocked_keywords: list[str] = field(
         default_factory=lambda: [
+            # DDL Operations (Data Definition Language)
             "DROP",
-            "DELETE",
-            "TRUNCATE",
+            "CREATE", 
             "ALTER",
-            "CREATE",
+            "TRUNCATE",
+            # DML Operations (Data Manipulation Language)
+            "DELETE",
             "INSERT",
             "UPDATE",
+            # DCL Operations (Data Control Language)
             "GRANT",
             "REVOKE",
+            # System Operations
+            "EXEC",
+            "EXECUTE", 
+            "SHUTDOWN",
+            "KILL",
         ]
     )
     max_query_complexity: int = 100
@@ -154,7 +163,7 @@ class DorisConfig:
 
     # Basic configuration
     server_name: str = "doris-mcp-server"
-    server_version: str = "0.4.0"
+    server_version: str = "0.4.1"
     server_port: int = 3000
     transport: str = "stdio"
     
@@ -267,6 +276,22 @@ class DorisConfig:
         config.security.max_query_complexity = int(
             os.getenv("MAX_QUERY_COMPLEXITY", str(config.security.max_query_complexity))
         )
+        config.security.enable_security_check = (
+            os.getenv("ENABLE_SECURITY_CHECK", str(config.security.enable_security_check).lower()).lower() == "true"
+        )
+        
+        # Handle blocked keywords environment variable configuration
+        # Format: BLOCKED_KEYWORDS="DROP,DELETE,TRUNCATE,ALTER,CREATE,INSERT,UPDATE,GRANT,REVOKE"
+        blocked_keywords_env = os.getenv("BLOCKED_KEYWORDS", "")
+        if blocked_keywords_env:
+            # If environment variable is provided, use keywords list from environment variable
+            config.security.blocked_keywords = [
+                keyword.strip().upper() 
+                for keyword in blocked_keywords_env.split(",") 
+                if keyword.strip()
+            ]
+        # If environment variable is empty, keep default configuration unchanged
+        
         config.security.enable_masking = (
             os.getenv("ENABLE_MASKING", str(config.security.enable_masking).lower()).lower() == "true"
         )
@@ -399,6 +424,7 @@ class DorisConfig:
                 "auth_type": self.security.auth_type,
                 "token_secret": "***",  # Hide secret key
                 "token_expiry": self.security.token_expiry,
+                "enable_security_check": self.security.enable_security_check,
                 "blocked_keywords": self.security.blocked_keywords,
                 "max_query_complexity": self.security.max_query_complexity,
                 "max_result_rows": self.security.max_result_rows,
