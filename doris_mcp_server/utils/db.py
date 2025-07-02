@@ -219,7 +219,8 @@ class DorisConnectionManager:
                 password=self.config.database.password,
                 db=self.config.database.database,
                 charset="utf8",
-                minsize=0,  # Avoid pre-creation issues - create connections on demand
+                minsize=self.config.database.min_connections,  # Always 0 per configuration to avoid at_eof issues
+
                 maxsize=self.config.database.max_connections or 20,
                 autocommit=True,
                 connect_timeout=self.connection_timeout,
@@ -234,6 +235,8 @@ class DorisConnectionManager:
 
             self.logger.info(
                 f"Connection pool initialized successfully with on-demand connection creation, "
+                f"min connections: {self.config.database.min_connections}, "
+
                 f"max connections: {self.config.database.max_connections or 20}"
             )
 
@@ -472,7 +475,7 @@ class DorisConnectionManager:
                         if conn.connection and not conn.connection.closed:
                             await conn.connection.ensure_closed()
                     except Exception:
-                        pass
+                        pass  # Ignore errors during forced close
                 
                 # Close connection wrapper
                 await conn.close()
