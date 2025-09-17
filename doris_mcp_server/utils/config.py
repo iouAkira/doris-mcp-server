@@ -77,10 +77,49 @@ class DatabaseConfig:
 class SecurityConfig:
     """Security configuration"""
 
-    # Authentication configuration
-    auth_type: str = "token"  # token, basic, oauth
-    token_secret: str = "default_secret"
+    # Independent authentication switches - any one enabled allows that method
+    enable_token_auth: bool = False  # Enable token-based authentication (default: disabled)
+    enable_jwt_auth: bool = False    # Enable JWT authentication (default: disabled)
+    enable_oauth_auth: bool = False  # Enable OAuth 2.0/OIDC authentication (default: disabled)
+    
+    # Legacy configuration (kept for backward compatibility)
+    auth_type: str = "token"  # jwt, token, basic, oauth (deprecated: use individual switches)
+    token_secret: str = "default_secret"  # Legacy token secret for backward compatibility
     token_expiry: int = 3600
+    
+    # Enhanced Token Authentication Configuration
+    token_file_path: str = "tokens.json"  # Path to token configuration file
+    enable_token_expiry: bool = True  # Enable token expiration
+    default_token_expiry_hours: int = 24 * 30  # Default expiry: 30 days
+    token_hash_algorithm: str = "sha256"  # Token hashing algorithm: sha256, sha512
+    
+    # Token Management Security (New in v0.6.0)
+    enable_http_token_management: bool = False  # Enable HTTP token management endpoints (default: disabled for security)
+    token_management_admin_token: str = ""  # Admin token for token management endpoints (required if HTTP management enabled)
+    token_management_allowed_ips: list[str] = field(default_factory=lambda: ["127.0.0.1", "::1", "localhost"])  # Allowed IPs for token management
+    require_admin_auth: bool = True  # Require admin authentication for token management (default: true)
+    
+    # JWT Configuration
+    jwt_algorithm: str = "RS256"  # RS256, ES256, HS256
+    jwt_issuer: str = "doris-mcp-server"
+    jwt_audience: str = "doris-mcp-client"
+    jwt_private_key_path: str = ""
+    jwt_public_key_path: str = ""
+    jwt_secret_key: str = ""  # Only used for HS256 algorithm
+    jwt_access_token_expiry: int = 3600  # 1 hour
+    jwt_refresh_token_expiry: int = 86400  # 24 hours
+    enable_token_refresh: bool = True
+    enable_token_revocation: bool = True
+    key_rotation_interval: int = 30 * 24 * 3600  # 30 days in seconds
+    
+    # JWT Security Features
+    jwt_require_iat: bool = True  # Require "issued at" claim
+    jwt_require_exp: bool = True  # Require "expires at" claim
+    jwt_require_nbf: bool = False  # Require "not before" claim
+    jwt_leeway: int = 10  # Clock skew tolerance in seconds
+    jwt_verify_signature: bool = True  # Verify JWT signature
+    jwt_verify_audience: bool = True  # Verify audience claim
+    jwt_verify_issuer: bool = True  # Verify issuer claim
 
     # SQL security configuration
     enable_security_check: bool = True  # Main switch: whether to enable SQL security check
@@ -114,6 +153,45 @@ class SecurityConfig:
     # Data masking configuration
     enable_masking: bool = True
     masking_rules: list[dict[str, Any]] = field(default_factory=list)
+
+    # OAuth 2.0/OIDC Configuration
+    oauth_enabled: bool = False
+    oauth_provider: str = ""  # 'google', 'microsoft', 'github', 'custom'
+    oauth_client_id: str = ""
+    oauth_client_secret: str = ""
+    oauth_redirect_uri: str = "http://localhost:3000/auth/callback"
+    
+    # OIDC Discovery
+    oidc_discovery_url: str = ""  # e.g., https://accounts.google.com/.well-known/openid_configuration
+    oauth_authorization_endpoint: str = ""
+    oauth_token_endpoint: str = ""
+    oauth_userinfo_endpoint: str = ""
+    oauth_jwks_uri: str = ""
+    
+    # OAuth Scopes and Settings
+    oauth_scopes: list[str] = field(default_factory=list)
+    oauth_state_expiry: int = 600  # State parameter expiry in seconds (10 minutes)
+    oauth_pkce_enabled: bool = True  # Enable PKCE for better security
+    oauth_nonce_enabled: bool = True  # Enable nonce for OIDC
+    
+    # User Mapping Configuration
+    oauth_user_id_claim: str = "sub"  # JWT claim for user ID
+    oauth_email_claim: str = "email"
+    oauth_name_claim: str = "name"
+    oauth_roles_claim: str = "roles"  # Custom claim for roles
+    oauth_default_roles: list[str] = field(default_factory=lambda: ["oauth_user"])
+    
+    def __post_init__(self):
+        """Initialize default OAuth scopes based on provider"""
+        if not self.oauth_scopes and self.oauth_provider:
+            if self.oauth_provider == "google":
+                self.oauth_scopes = ["openid", "email", "profile"]
+            elif self.oauth_provider == "microsoft":
+                self.oauth_scopes = ["openid", "profile", "email", "User.Read"]
+            elif self.oauth_provider == "github":
+                self.oauth_scopes = ["user:email", "read:user"]
+            else:
+                self.oauth_scopes = ["openid", "email", "profile"]
 
 
 @dataclass
@@ -225,6 +303,7 @@ class DorisConfig:
     # Basic configuration
     server_name: str = "doris-mcp-server"
     server_version: str = "0.4.1"
+    server_host: str = "localhost"
     server_port: int = 3000
     transport: str = "stdio"
     
@@ -267,6 +346,9 @@ class DorisConfig:
     @classmethod
     def from_env(cls, env_file: str | None = None) -> "DorisConfig":
         """Load configuration from environment variables
+
+        The kv pairs in the. env file will be loaded as environment variables,
+        but the existing environment variables will not be overridden.
         
         Args:
             env_file: .env file path, if None, search in the following order:
@@ -286,7 +368,7 @@ class DorisConfig:
                 env_files = [".env", ".env.local", ".env.production", ".env.development"]
                 for env_path in env_files:
                     if Path(env_path).exists():
-                        load_dotenv(env_path)
+                        load_dotenv(env_path, override=False)
                         logging.getLogger(__name__).info(f"Loaded environment configuration file: {env_path}")
                         break
                 else:
@@ -296,19 +378,34 @@ class DorisConfig:
 
         config = cls()
 
-        # Database configuration
-        config.database.host = os.getenv("DORIS_HOST", config.database.host)
-        config.database.port = int(os.getenv("DORIS_PORT", str(config.database.port)))
-        config.database.user = os.getenv("DORIS_USER", config.database.user)
-        config.database.password = os.getenv("DORIS_PASSWORD", config.database.password)
-        config.database.database = os.getenv("DORIS_DATABASE", config.database.database)
-        config.database.fe_http_port = int(os.getenv("DORIS_FE_HTTP_PORT", str(config.database.fe_http_port)))
+        # Database configuration - handle empty strings properly
+        doris_host = os.getenv("DORIS_HOST", "").strip()
+        config.database.host = doris_host if doris_host else config.database.host
+        
+        doris_port = os.getenv("DORIS_PORT", "").strip()
+        if doris_port and doris_port.isdigit():
+            config.database.port = int(doris_port)
+        
+        doris_user = os.getenv("DORIS_USER", "").strip()
+        config.database.user = doris_user if doris_user else config.database.user
+        
+        doris_password = os.getenv("DORIS_PASSWORD", "")
+        config.database.password = doris_password if doris_password else config.database.password
+        
+        doris_database = os.getenv("DORIS_DATABASE", "").strip()
+        config.database.database = doris_database if doris_database else config.database.database
+        
+        doris_fe_http_port = os.getenv("DORIS_FE_HTTP_PORT", "").strip()
+        if doris_fe_http_port and doris_fe_http_port.isdigit():
+            config.database.fe_http_port = int(doris_fe_http_port)
         
         # BE nodes configuration
         be_hosts_env = os.getenv("DORIS_BE_HOSTS", "")
         if be_hosts_env:
             config.database.be_hosts = [host.strip() for host in be_hosts_env.split(",") if host.strip()]
-        config.database.be_webserver_port = int(os.getenv("DORIS_BE_WEBSERVER_PORT", str(config.database.be_webserver_port)))
+        be_webserver_port = os.getenv("DORIS_BE_WEBSERVER_PORT", "").strip()
+        if be_webserver_port and be_webserver_port.isdigit():
+            config.database.be_webserver_port = int(be_webserver_port)
         
         # Arrow Flight SQL Configuration
         fe_arrow_port_env = os.getenv("FE_ARROW_FLIGHT_SQL_PORT")
@@ -334,6 +431,10 @@ class DorisConfig:
         )
 
         # Security configuration
+        # Independent authentication switches
+        config.security.enable_token_auth = os.getenv("ENABLE_TOKEN_AUTH", str(config.security.enable_token_auth)).lower() == "true"
+        config.security.enable_jwt_auth = os.getenv("ENABLE_JWT_AUTH", str(config.security.enable_jwt_auth)).lower() == "true"
+        config.security.enable_oauth_auth = os.getenv("ENABLE_OAUTH_AUTH", str(config.security.enable_oauth_auth)).lower() == "true"
         config.security.auth_type = os.getenv("AUTH_TYPE", config.security.auth_type)
         config.security.token_secret = os.getenv("TOKEN_SECRET", config.security.token_secret)
         config.security.token_expiry = int(
@@ -363,6 +464,31 @@ class DorisConfig:
         
         config.security.enable_masking = (
             os.getenv("ENABLE_MASKING", str(config.security.enable_masking).lower()).lower() == "true"
+        )
+        
+        # Enhanced Token Authentication configuration
+        config.security.token_file_path = os.getenv("TOKEN_FILE_PATH", config.security.token_file_path)
+        config.security.enable_token_expiry = (
+            os.getenv("ENABLE_TOKEN_EXPIRY", str(config.security.enable_token_expiry).lower()).lower() == "true"
+        )
+        config.security.default_token_expiry_hours = int(
+            os.getenv("DEFAULT_TOKEN_EXPIRY_HOURS", str(config.security.default_token_expiry_hours))
+        )
+        config.security.token_hash_algorithm = os.getenv("TOKEN_HASH_ALGORITHM", config.security.token_hash_algorithm)
+        
+        # Token Management Security Configuration (New in v0.6.0)
+        config.security.enable_http_token_management = (
+            os.getenv("ENABLE_HTTP_TOKEN_MANAGEMENT", str(config.security.enable_http_token_management).lower()).lower() == "true"
+        )
+        config.security.token_management_admin_token = os.getenv("TOKEN_MANAGEMENT_ADMIN_TOKEN", config.security.token_management_admin_token)
+        
+        # Parse allowed IPs from comma-separated string
+        allowed_ips_str = os.getenv("TOKEN_MANAGEMENT_ALLOWED_IPS", "")
+        if allowed_ips_str:
+            config.security.token_management_allowed_ips = [ip.strip() for ip in allowed_ips_str.split(",") if ip.strip()]
+        
+        config.security.require_admin_auth = (
+            os.getenv("REQUIRE_ADMIN_AUTH", str(config.security.require_admin_auth).lower()).lower() == "true"
         )
 
         # Performance configuration
@@ -467,7 +593,9 @@ class DorisConfig:
         # Server configuration
         config.server_name = os.getenv("SERVER_NAME", config.server_name)
         config.server_version = os.getenv("SERVER_VERSION", config.server_version)
-        config.server_port = int(os.getenv("SERVER_PORT", str(config.server_port)))
+        server_port = os.getenv("SERVER_PORT", "").strip()
+        if server_port and server_port.isdigit():
+            config.server_port = int(server_port)
         config.temp_files_dir = os.getenv("TEMP_FILES_DIR", config.temp_files_dir)
 
         return config
